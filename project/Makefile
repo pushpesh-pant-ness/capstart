@@ -12,7 +12,7 @@ IMAGE := capstart/remediation-agent:local
 .PHONY: cluster-up cluster-down namespaces workloads monitoring \
         agent-image agent-load agent-rbac agent-secret agent-deploy deploy-all \
         logs-agent audit-list \
-        inject-crashloop inject-node inject-service inject-networkpolicy inject-replica \
+        inject-crashloop inject-node inject-node-auto inject-service inject-networkpolicy inject-replica \
         revert-crashloop revert-node revert-service revert-networkpolicy revert-replica \
         clean
 
@@ -84,6 +84,15 @@ inject-crashloop:
 
 inject-node:
 	python injector/node_not_ready.py
+
+# Node NotReady needs an out-of-band kubelet restart the agent can't perform
+# via the K8s API - this auto-reverts AUTOREVERT seconds (default 30) after
+# injecting so approving in the UI is the only manual step left.
+inject-node-auto:
+	python injector/node_not_ready.py
+	@echo "Auto-reverting in $${AUTOREVERT:-30}s - approve the incident in the UI now: http://localhost:8000"
+	sleep $${AUTOREVERT:-30}
+	python injector/node_not_ready.py --revert
 
 inject-service:
 	python injector/service_unreachable.py

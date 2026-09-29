@@ -92,6 +92,10 @@ cd project
 ./scripts/deploy.ps1
 ```
 
+Or use `./scripts/start-demo.ps1` instead - it runs `deploy.ps1`, then also opens
+the agent-log and demo-pod watch windows and the UI/Prometheus browser tabs
+for you, so a single command leaves you ready to run `./scripts/inject.ps1`.
+
 This single script (idempotent - safe to re-run) does all of the following,
 printing each step as it runs and stopping immediately if anything fails:
 
@@ -160,8 +164,8 @@ sending/receiving at each step" view in real time:
 kubectl logs -n agent deploy/agent -f
 ```
 
-Within ~30-90 seconds (Prometheus evaluates the rule every 15s with a 30s
-`for:` window, then Alertmanager groups for up to 10s) you should see, in
+Within ~20-45 seconds (Prometheus evaluates the rule every 15s with a 15s
+`for:` window, then Alertmanager groups for up to 5s) you should see, in
 order:
 
 1. `step=webhook.receive <-- RECV` - the raw Alertmanager webhook JSON.
@@ -224,7 +228,7 @@ the UI -> verify the fix -> confirm the alert clears.
 
 | # | Inject | What it breaks | Watch for the fix |
 |---|--------|-----------------|--------------------|
-| 2 | `./scripts/inject.ps1 -Incident node` | stops kubelet inside a kind worker container via `docker exec` | run `./scripts/inject.ps1 -Incident node -Revert` (restarts kubelet out-of-band) *before or right after* clicking Approve; the agent cordons the node and polls for up to 30s - if it sees `Ready` in that window it uncordons automatically, otherwise run `kubectl uncordon <node>` yourself once it recovers |
+| 2 | `./scripts/inject.ps1 -Incident node -AutoRevertAfter 30` | stops kubelet inside a kind worker container via `docker exec` | this one command re-starts the kubelet automatically 30s after injecting, giving you time to click Approve first; the agent cordons the node and polls every 5s for up to 5 minutes (60 attempts) - as soon as it sees `Ready` it uncordons automatically. If you instead ran plain `inject.ps1 -Incident node` and forgot to revert, the incident will show `execution_failed` with a `manual_hint` telling you to run `./scripts/inject.ps1 -Incident node -Revert` and then click **Retry** in the UI |
 | 3 | `./scripts/inject.ps1 -Incident service` | breaks `demo-web` Service's selector | `kubectl get endpoints -n demo demo-web -w` regains addresses after `k8s.patch_service` |
 | 4 | `./scripts/inject.ps1 -Incident networkpolicy` | applies a deny-all-ingress NetworkPolicy to demo-web | `NetworkPolicyBlockingTraffic` alert clears after `k8s.delete_networkpolicy` |
 | 5 | `./scripts/inject.ps1 -Incident replica` | sets `demo-api`'s image to a nonexistent tag | `kubectl get deployment -n demo demo-api -w` reaches full availability after `k8s.patch_deployment` restores the image and triggers a rollout restart |
@@ -241,8 +245,10 @@ On macOS/Linux: `make inject-<name>` / `make revert-<name>` wrap all five (see [
 > agent's remediation is limited to cordon (safe, via the API) + wait/report;
 > the actual kubelet restart is inherently out-of-band (`docker exec` in this
 > kind demo, node auto-repair/cluster autoscaler in a real cloud cluster).
-> If you cordon a node and then abandon the demo without reverting, run
-> `kubectl uncordon <node>` manually to clean up.
+> Use `-AutoRevertAfter <seconds>` on `inject.ps1` so this happens automatically
+> instead of forgetting it and watching all 60 retry attempts fail. If you cordon
+> a node and then abandon the demo without reverting, run `kubectl uncordon <node>`
+> manually to clean up.
 
 ---
 

@@ -11,8 +11,8 @@ data:
     route:
       receiver: remediation-agent
       group_by: ["alertname", "namespace"]
-      group_wait: 10s
-      group_interval: 30s
+      group_wait: 5s
+      group_interval: 15s
       repeat_interval: 1h
 
     receivers:
