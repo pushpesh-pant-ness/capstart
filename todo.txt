@@ -1,3 +1,4 @@
 1. add latency and check how much time it took to process and complete
 2. impment langsmith and observalvality tool
 3. check for Historical retrieval and RAG if we are doing it
+4. explain every situation with examples
