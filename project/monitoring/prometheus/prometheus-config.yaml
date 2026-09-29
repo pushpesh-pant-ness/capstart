@@ -53,7 +53,7 @@ data:
         rules:
           - alert: PodCrashLoopBackOff
             expr: increase(kube_pod_container_status_restarts_total{namespace="demo"}[5m]) > 3
-            for: 30s
+            for: 15s
             labels:
               severity: critical
               incident_type: crashloop
@@ -63,7 +63,7 @@ data:
 
           - alert: NodeNotReady
             expr: kube_node_status_condition{condition="Ready", status="true"} == 0
-            for: 30s
+            for: 15s
             labels:
               severity: critical
               incident_type: node_not_ready
@@ -73,7 +73,7 @@ data:
 
           - alert: ServiceEndpointsUnreachable
             expr: kube_endpoint_address_available{namespace="demo"} == 0
-            for: 30s
+            for: 15s
             labels:
               severity: critical
               incident_type: service_unreachable
@@ -83,7 +83,7 @@ data:
 
           - alert: NetworkPolicyBlockingTraffic
             expr: probe_success{job="blackbox-networkpolicy-probe"} == 0
-            for: 30s
+            for: 15s
             labels:
               severity: warning
               incident_type: networkpolicy_block
@@ -93,7 +93,7 @@ data:
 
           - alert: DeploymentReplicaMismatch
             expr: kube_deployment_spec_replicas{namespace="demo"} != kube_deployment_status_replicas_available{namespace="demo"}
-            for: 30s
+            for: 15s
             labels:
               severity: warning
               incident_type: replica_mismatch

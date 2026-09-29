@@ -61,7 +61,7 @@ def execute_remediation(
             on_update("execution_failed", result)
         return result
 
-    attempt_fn, check_fn, on_resolved_fn = entry
+    attempt_fn, check_fn, on_resolved_fn, manual_hint = entry
     result: dict[str, Any] = {}
 
     for attempt in range(1, MAX_ATTEMPTS + 1):
@@ -98,10 +98,11 @@ def execute_remediation(
 
     result["status"] = "execution_failed"
     result["attempts"] = MAX_ATTEMPTS
-    result["reason"] = result.get(
-        "reason", "Condition did not clear within the retry window - likely needs out-of-band/manual intervention"
-    )
-    log_step(incident_id, "executor.result", "RECV", result, note="Gave up after max retries")
+    default_reason = "Condition did not clear within the retry window - likely needs out-of-band/manual intervention"
+    result["reason"] = result.get("reason", default_reason)
+    if manual_hint:
+        result["manual_hint"] = manual_hint
+    log_step(incident_id, "executor.result", "RECV", result, note="Gave up after max retries" + (f" - {manual_hint}" if manual_hint else ""))
     if on_update:
         on_update("execution_failed", result)
     return result
@@ -305,6 +306,9 @@ def _check_networkpolicy_resolved(namespace: str, resource_name: str) -> bool:
     return len(policies.items) == 0
 
 
+RESTART_TRIGGERED_ANNOTATION = "capstart.dev/restart-triggered"
+
+
 def _rollout_restart_deployment(incident_id: int, namespace: str, deployment_name: str) -> dict[str, Any]:
     apps = _apps_v1()
     result: dict[str, Any] = {"deployment": deployment_name}
@@ -312,6 +316,12 @@ def _rollout_restart_deployment(incident_id: int, namespace: str, deployment_nam
     dep = apps.read_namespaced_deployment(deployment_name, namespace)
     annotations = dep.metadata.annotations or {}
     original_image = annotations.get(ORIGINAL_IMAGE_ANNOTATION)
+
+    if not original_image and annotations.get(RESTART_TRIGGERED_ANNOTATION) == "true":
+        # Already triggered on an earlier attempt - re-patching every poll interval would
+        # restart the rollout before it ever finishes, so just let it converge and keep polling.
+        result["rollout_restart_triggered"] = False
+        return result
 
     patch: dict[str, Any] = {
         "spec": {
@@ -322,12 +332,13 @@ def _rollout_restart_deployment(incident_id: int, namespace: str, deployment_nam
                     }
                 }
             }
-        }
+        },
+        "metadata": {"annotations": {RESTART_TRIGGERED_ANNOTATION: "true"}},
     }
     if original_image:
         container_name = dep.spec.template.spec.containers[0].name
         patch["spec"]["template"]["spec"] = {"containers": [{"name": container_name, "image": original_image}]}
-        patch["metadata"] = {"annotations": {ORIGINAL_IMAGE_ANNOTATION: None}}
+        patch["metadata"]["annotations"][ORIGINAL_IMAGE_ANNOTATION] = None
         result["image_restored_to"] = original_image
 
     log_step(
@@ -340,6 +351,7 @@ def _rollout_restart_deployment(incident_id: int, namespace: str, deployment_nam
     apps.patch_namespaced_deployment(deployment_name, namespace, patch)
     log_step(incident_id, "k8s.patch_deployment", "RECV", {"status": "patched"})
 
+    result["rollout_restart_triggered"] = True
     return result
 
 
@@ -351,11 +363,19 @@ def _check_replica_resolved(namespace: str, deployment_name: str) -> bool:
     return spec_replicas > 0 and available >= spec_replicas
 
 
-_HANDLERS: dict[str, tuple[Callable[..., dict[str, Any]], Callable[..., bool], Callable[..., dict[str, Any]] | None]] = {
-    "delete_pod": (_delete_pod, _check_crashloop_resolved, None),
-    "recover_node": (_cordon_node, _check_node_ready, _uncordon_node),
-    "fix_service_selector": (_fix_service_selector, _check_service_resolved, None),
-    "delete_blocking_networkpolicy": (_delete_blocking_networkpolicy, _check_networkpolicy_resolved, None),
-    "rollout_restart_deployment": (_rollout_restart_deployment, _check_replica_resolved, None),
+_Handler = tuple[Callable[..., dict[str, Any]], Callable[..., bool], Callable[..., dict[str, Any]] | None, str | None]
+_HANDLERS: dict[str, _Handler] = {
+    "delete_pod": (_delete_pod, _check_crashloop_resolved, None, None),
+    "recover_node": (
+        _cordon_node,
+        _check_node_ready,
+        _uncordon_node,
+        "A downed kubelet can't be restarted via the Kubernetes API - run "
+        "'python injector/node_not_ready.py --revert' (or restart the kubelet out-of-band), "
+        "then click Retry.",
+    ),
+    "fix_service_selector": (_fix_service_selector, _check_service_resolved, None, None),
+    "delete_blocking_networkpolicy": (_delete_blocking_networkpolicy, _check_networkpolicy_resolved, None, None),
+    "rollout_restart_deployment": (_rollout_restart_deployment, _check_replica_resolved, None, None),
 }
 
