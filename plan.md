@@ -119,7 +119,6 @@ capstart/
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── injector/                 # fault injection scripts, one per incident type
-├── docs/
 ├── diagram.md
 ├── plan.md
 └── Makefile

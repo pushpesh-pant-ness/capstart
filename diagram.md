@@ -62,7 +62,7 @@ sequenceDiagram
     participant UI as Approval UI
     participant Human as Human Approver
 
-    Inj->>K8s: inject fault (e.g. delete Service)
+    Inj->>K8s: inject fault (Phase 1 example: crash a container to trigger CrashLoopBackOff)
     K8s-->>Prom: metrics reflect broken state
     Prom->>Prom: alert rule fires (after "for:" window)
     Prom->>Agent: Alertmanager webhook
@@ -87,12 +87,14 @@ sequenceDiagram
 
 ## MVP Incident Coverage
 
+Order matches the build order in [plan.md](plan.md#incident-catalog) (Phase 1 first, then Phase 2).
+
 ```mermaid
 flowchart LR
-    A1["Node NotReady"] --> AM["Alertmanager"]
-    A2["Pod CrashLoopBackOff"] --> AM
-    A3["Service/Endpoints unreachable"] --> AM
-    A4["NetworkPolicy blocking traffic"] --> AM
-    A5["Deployment replica mismatch"] --> AM
+    A1["1. Pod CrashLoopBackOff (Phase 1)"] --> AM["Alertmanager"]
+    A2["2. Node NotReady (Phase 2)"] --> AM
+    A3["3. Service/Endpoints unreachable (Phase 2)"] --> AM
+    A4["4. NetworkPolicy blocking traffic (Phase 2)"] --> AM
+    A5["5. Deployment replica mismatch (Phase 2)"] --> AM
     AM --> Agent["Remediation Agent"]
 ```
