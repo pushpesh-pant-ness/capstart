@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: monitoring
+data:
+  alertmanager.yml: |
+    global:
+      resolve_timeout: 30s
+
+    route:
+      receiver: remediation-agent
+      group_by: ["alertname", "namespace"]
+      group_wait: 10s
+      group_interval: 30s
+      repeat_interval: 1h
+
+    receivers:
+      - name: remediation-agent
+        webhook_configs:
+          - url: http://agent.agent.svc.cluster.local:8000/webhook/alertmanager
+            send_resolved: true

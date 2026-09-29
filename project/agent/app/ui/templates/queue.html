@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Incident Queue{% endblock %}
+{% block content %}
+<div id="queue-content" hx-get="/" hx-trigger="every 4s" hx-select="#queue-content" hx-target="#queue-content" hx-swap="outerHTML">
+  <h2>Active Incidents <small>({{ active_incidents|length }})</small></h2>
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Received</th>
+        <th>Incident Type</th>
+        <th>Namespace / Resource</th>
+        <th>Severity</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for incident in active_incidents %}
+      <tr onclick="window.location='/incident/{{ incident.id }}'" style="cursor:pointer">
+        <td>#{{ incident.id }}</td>
+        <td>{{ incident.received_at }}</td>
+        <td>{{ incident.incident_type }}</td>
+        <td>{{ incident.namespace }} / {{ incident.resource_name }}</td>
+        <td>{{ incident.severity }}</td>
+        <td><span class="badge badge-{{ incident.status }}">{{ incident.status }}</span></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6">No active incidents. Trigger a fault from injector/ to see one appear here.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>Resolved / Handled Incidents <small>({{ resolved_incidents|length }})</small></h2>
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Received</th>
+        <th>Incident Type</th>
+        <th>Namespace / Resource</th>
+        <th>Severity</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for incident in resolved_incidents %}
+      <tr onclick="window.location='/incident/{{ incident.id }}'" style="cursor:pointer">
+        <td>#{{ incident.id }}</td>
+        <td>{{ incident.received_at }}</td>
+        <td>{{ incident.incident_type }}</td>
+        <td>{{ incident.namespace }} / {{ incident.resource_name }}</td>
+        <td>{{ incident.severity }}</td>
+        <td><span class="badge badge-{{ incident.status }}">{{ incident.status }}</span></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6">Nothing resolved yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

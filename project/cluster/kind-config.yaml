@@ -1,0 +1,27 @@
+# kind cluster: 1 control-plane + 2 workers, sized for a laptop demo.
+# Host ports are mapped so you can reach the in-cluster services from your browser/CLI
+# without needing `kubectl port-forward` for the main ones (Prometheus, Loki, Agent UI).
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: capstart
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 30900 # Prometheus NodePort
+        hostPort: 9090
+        protocol: TCP
+      - containerPort: 30930 # Alertmanager NodePort
+        hostPort: 9093
+        protocol: TCP
+      - containerPort: 30310 # Loki NodePort
+        hostPort: 3100
+        protocol: TCP
+      - containerPort: 30800 # Remediation agent (API + Approval UI) NodePort
+        hostPort: 8000
+        protocol: TCP
+  - role: worker
+    labels:
+      demo-node: "a"
+  - role: worker
+    labels:
+      demo-node: "b"

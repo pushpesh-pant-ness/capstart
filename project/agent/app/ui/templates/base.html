@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>{% block title %}Remediation Agent{% endblock %}</title>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <style>
+    :root { color-scheme: light; }
+    body { font-family: -apple-system, Segoe UI, Arial, sans-serif; margin: 0; background: #f4f5f7; color: #1a1a1a; }
+    header { background: #14213d; color: white; padding: 14px 24px; }
+    header a { color: white; text-decoration: none; font-weight: 600; }
+    main { max-width: 1000px; margin: 24px auto; padding: 0 16px; }
+    table { width: 100%; border-collapse: collapse; background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    table + h2 { margin-top: 32px; }
+    h2 small { color: #6b7280; font-weight: 400; font-size: 15px; }
+    th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #e5e7eb; font-size: 14px; }
+    th { background: #eef1f6; }
+    tr:hover { background: #fafbff; }
+    .badge { padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: 600; color: white; }
+    .badge-pending { background: #f59e0b; }
+    .badge-approved, .badge-executed { background: #16a34a; }
+    .badge-in_progress { background: #2563eb; }
+    .badge-rejected { background: #6b7280; }
+    .badge-execution_failed { background: #dc2626; }
+    .badge-resolved { background: #0d9488; }
+    .card { background: white; border-radius: 8px; padding: 16px 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .card h3 { margin-top: 0; }
+    pre { background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 12.5px; }
+    .step { border-left: 3px solid #94a3b8; padding: 6px 12px; margin-bottom: 8px; font-size: 13px; }
+    .step-SEND { border-color: #2563eb; }
+    .step-RECV { border-color: #16a34a; }
+    .step-ACTION { border-color: #dc2626; }
+    .step-INFO { border-color: #94a3b8; }
+    .step small { color: #64748b; }
+    button.approve { background: #16a34a; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; margin-right: 8px; }
+    button.reject { background: #dc2626; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; }
+    a.back { color: #2563eb; text-decoration: none; }
+    nav.tabs { display: flex; gap: 4px; margin-top: 8px; }
+    nav.tabs a { color: #cbd5e1; text-decoration: none; padding: 6px 12px; border-radius: 6px 6px 0 0; font-size: 14px; }
+    nav.tabs a.active { background: #f4f5f7; color: #14213d; font-weight: 600; }
+    .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
+    .dot-green { background: #16a34a; }
+    .dot-red { background: #dc2626; }
+    .dot-yellow { background: #f59e0b; }
+    .node-card { display: inline-block; background: white; border-radius: 8px; padding: 10px 16px; margin: 0 12px 12px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+  </style>
+</head>
+<body>
+  <header>
+    <a href="/">Kubernetes Incident Remediation Agent</a>
+    <nav class="tabs">
+      <a href="/" class="{{ 'active' if request.url.path == '/' }}">Incident Queue</a>
+      <a href="/cluster" class="{{ 'active' if request.url.path == '/cluster' }}">Cluster Status</a>
+    </nav>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

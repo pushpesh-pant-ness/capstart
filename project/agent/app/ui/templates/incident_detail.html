@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Incident #{{ incident.id }}{% endblock %}
+{% block content %}
+<a class="back" href="/">&larr; back to queue</a>
+<div id="incident-content" hx-get="/incident/{{ incident.id }}" hx-trigger="every 3s" hx-select="#incident-content" hx-target="#incident-content" hx-swap="outerHTML">
+<h2>Incident #{{ incident.id }} - {{ incident.incident_type }}
+  <span class="badge badge-{{ incident.status }}">{{ incident.status }}</span>
+</h2>
+
+<div class="card">
+  <h3>1. Alert received</h3>
+  <p><strong>Alert name:</strong> {{ incident.alertname }} &nbsp;
+     <strong>Namespace:</strong> {{ incident.namespace }} &nbsp;
+     <strong>Resource:</strong> {{ incident.resource_name }} &nbsp;
+     <strong>Severity:</strong> {{ incident.severity }}</p>
+  <pre>{{ incident.raw_alert | tojson(indent=2) }}</pre>
+</div>
+
+<div class="card">
+  <h3>2. Context gathered (Prometheus / Loki)</h3>
+  <pre>{{ incident.context_snapshot | tojson(indent=2) }}</pre>
+</div>
+
+<div class="card">
+  <h3>3. Diagnosis (Amazon Nova via AWS Bedrock)</h3>
+  <p>{{ incident.diagnosis_text }}</p>
+</div>
+
+<div class="card">
+  <h3>4. Proposed remediation plan (fixed, deterministic template)</h3>
+  {% if incident.remediation_plan %}
+  <p><strong>{{ incident.remediation_plan.title }}</strong></p>
+  <ol>
+    {% for step in incident.remediation_plan.steps %}
+    <li>{{ step }}</li>
+    {% endfor %}
+  </ol>
+  <p><small>action = <code>{{ incident.remediation_plan.action }}</code></small></p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h3>5. Human decision</h3>
+  {% if incident.status == "pending" %}
+  <form style="display:inline" method="post" action="/incident/{{ incident.id }}/approve">
+    <input type="hidden" name="approver" value="human">
+    <button class="approve" type="submit">Approve</button>
+  </form>
+  <form style="display:inline" method="post" action="/incident/{{ incident.id }}/reject">
+    <input type="hidden" name="approver" value="human">
+    <button class="reject" type="submit">Reject</button>
+  </form>
+  {% elif incident.status == "in_progress" %}
+  <p>Approved by {{ incident.decision_by }} at {{ incident.decision_at }} - agent is retrying
+     until the condition clears (this page refreshes itself every 3s).</p>
+  {% elif incident.status == "execution_failed" %}
+  <p>Approved by {{ incident.decision_by }} at {{ incident.decision_at }} - retry budget exhausted.</p>
+  <form method="post" action="/incident/{{ incident.id }}/retry">
+    <button class="approve" type="submit">Retry</button>
+  </form>
+  {% else %}
+  <p>Decision: <strong>{{ incident.status }}</strong>
+     {% if incident.decision_by %}by {{ incident.decision_by }} at {{ incident.decision_at }}{% endif %}</p>
+  {% endif %}
+</div>
+
+{% if incident.execution_result %}
+<div class="card">
+  <h3>6. Execution result (Kubernetes API)</h3>
+  <pre>{{ incident.execution_result | tojson(indent=2) }}</pre>
+</div>
+{% endif %}
+
+<div class="card">
+  <h3>Full step-by-step timeline (exactly what the agent sent / received)</h3>
+  {% for event in timeline %}
+  <div class="step step-{{ event.direction }}">
+    <div><strong>{{ event.step }}</strong> &nbsp;<small>{{ event.direction }} &middot; {{ event.timestamp }}</small></div>
+    {% if event.note %}<div><em>{{ event.note }}</em></div>{% endif %}
+    {% if event.payload %}<pre>{{ event.payload }}</pre>{% endif %}
+  </div>
+  {% else %}
+  <p>No timeline events recorded yet.</p>
+  {% endfor %}
+</div>
+</div>
+{% endblock %}

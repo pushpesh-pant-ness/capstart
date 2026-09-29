@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent
+  namespace: agent
+  labels:
+    app: agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agent
+  template:
+    metadata:
+      labels:
+        app: agent
+    spec:
+      serviceAccountName: agent
+      # Fault injection in this demo only targets worker nodes (see injector/).
+      # Pin the agent to the control-plane so it can never become collateral
+      # damage of the very node/pod faults it's supposed to remediate.
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: agent
+          image: capstart/remediation-agent:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          env:
+            - name: PROMETHEUS_URL
+              value: http://prometheus.monitoring.svc.cluster.local:9090
+            - name: LOKI_URL
+              value: http://loki.monitoring.svc.cluster.local:3100
+            - name: AWS_REGION
+              value: us-east-1
+            - name: BEDROCK_MODEL_ID
+              value: amazon.nova-lite-v1:0
+            - name: BEDROCK_ENABLED
+              value: "true"
+            - name: KUBE_IN_CLUSTER
+              value: "true"
+            - name: AUDIT_DB_PATH
+              value: /data/audit.db
+          envFrom:
+            - secretRef:
+                name: aws-bedrock-credentials
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          volumeMounts:
+            - name: audit-data
+              mountPath: /data
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 3
+            periodSeconds: 5
+      volumes:
+        - name: audit-data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent
+  namespace: agent
+spec:
+  type: NodePort
+  selector:
+    app: agent
+  ports:
+    - port: 8000
+      targetPort: 8000
+      nodePort: 30800

@@ -1,0 +1,102 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: monitoring
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets: ["alertmanager.monitoring.svc.cluster.local:9093"]
+
+    rule_files:
+      - /etc/prometheus/rules/*.yml
+
+    scrape_configs:
+      - job_name: prometheus
+        static_configs:
+          - targets: ["localhost:9090"]
+
+      - job_name: kube-state-metrics
+        static_configs:
+          - targets: ["kube-state-metrics.monitoring.svc.cluster.local:8080"]
+
+      - job_name: node-exporter
+        static_configs:
+          - targets: ["node-exporter.monitoring.svc.cluster.local:9100"]
+
+      # Synthetic probe used to detect incident #4 (NetworkPolicy blocking
+      # traffic): blackbox-exporter has no special network privileges, so if
+      # a NetworkPolicy starts denying it, probe_success drops to 0.
+      - job_name: blackbox-networkpolicy-probe
+        metrics_path: /probe
+        params:
+          module: [http_2xx]
+        static_configs:
+          - targets:
+              - http://demo-web.demo.svc.cluster.local
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: __param_target
+          - source_labels: [__param_target]
+            target_label: instance
+          - target_label: __address__
+            replacement: blackbox-exporter.monitoring.svc.cluster.local:9115
+  rules.yml: |
+    groups:
+      - name: mvp-incidents
+        rules:
+          - alert: PodCrashLoopBackOff
+            expr: increase(kube_pod_container_status_restarts_total{namespace="demo"}[5m]) > 3
+            for: 30s
+            labels:
+              severity: critical
+              incident_type: crashloop
+            annotations:
+              summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is crash-looping"
+              description: "Container {{ $labels.container }} in pod {{ $labels.pod }} has restarted more than 3 times in the last 5 minutes."
+
+          - alert: NodeNotReady
+            expr: kube_node_status_condition{condition="Ready", status="true"} == 0
+            for: 30s
+            labels:
+              severity: critical
+              incident_type: node_not_ready
+            annotations:
+              summary: "Node {{ $labels.node }} is NotReady"
+              description: "Node {{ $labels.node }} has not reported Ready=true."
+
+          - alert: ServiceEndpointsUnreachable
+            expr: kube_endpoint_address_available{namespace="demo"} == 0
+            for: 30s
+            labels:
+              severity: critical
+              incident_type: service_unreachable
+            annotations:
+              summary: "Service {{ $labels.endpoint }} has zero available endpoints"
+              description: "Endpoints object {{ $labels.namespace }}/{{ $labels.endpoint }} has no available addresses."
+
+          - alert: NetworkPolicyBlockingTraffic
+            expr: probe_success{job="blackbox-networkpolicy-probe"} == 0
+            for: 30s
+            labels:
+              severity: warning
+              incident_type: networkpolicy_block
+            annotations:
+              summary: "Synthetic probe to {{ $labels.instance }} is failing"
+              description: "blackbox-exporter can no longer reach {{ $labels.instance }}, likely a NetworkPolicy is blocking traffic."
+
+          - alert: DeploymentReplicaMismatch
+            expr: kube_deployment_spec_replicas{namespace="demo"} != kube_deployment_status_replicas_available{namespace="demo"}
+            for: 30s
+            labels:
+              severity: warning
+              incident_type: replica_mismatch
+            annotations:
+              summary: "Deployment {{ $labels.deployment }} replica mismatch"
+              description: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} does not have all replicas available."
