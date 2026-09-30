@@ -4,8 +4,9 @@ Structured step logging.
 The whole point of this module is visibility: every time the agent sends
 something out (a PromQL query, a LogQL query, a Bedrock request, a Kubernetes
 API call) or receives something back, we print a clearly labelled block to
-stdout AND persist a copy on the incident's timeline so the same information
-shows up in the Approval UI. Nothing about the pipeline should be a black box.
+stdout AND persist a copy in Postgres (incident_steps table, via audit.py) so
+the same information survives an agent restart and shows up in the Approval
+UI. Nothing about the pipeline should be a black box.
 """
 from __future__ import annotations
 
@@ -17,6 +18,8 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
+from . import audit
+
 logger = logging.getLogger("agent")
 logger.setLevel(logging.INFO)
 if not logger.handlers:
@@ -26,7 +29,9 @@ if not logger.handlers:
 
 _ARROWS = {"SEND": "-->", "RECV": "<--", "INFO": "---", "ACTION": "==>"}
 
-# In-memory ring of recent step events per incident, shown in the UI detail page.
+# In-memory fallback ring of recent step events per incident, used only if a
+# Postgres write/read fails (e.g. transient DB hiccup) - Postgres is the
+# durable source of truth, see get_timeline() below.
 _timelines: dict[int, list[dict[str, Any]]] = {}
 # Monotonic clock (immune to system clock adjustments) start time per incident,
 # used to compute per-step and cumulative latency - see log_step().
@@ -90,12 +95,20 @@ def log_step(
     if incident_id is not None:
         with _lock:
             _timelines.setdefault(incident_id, []).append(event)
+        try:
+            audit.insert_step(incident_id, event)
+        except Exception:
+            logger.exception("failed to persist step to Postgres, kept in-memory only")
     return event
 
 
 def get_timeline(incident_id: int) -> list[dict[str, Any]]:
-    with _lock:
-        return list(_timelines.get(incident_id, []))
+    try:
+        return audit.get_steps(incident_id)
+    except Exception:
+        logger.exception("failed to read timeline from Postgres, falling back to in-memory")
+        with _lock:
+            return list(_timelines.get(incident_id, []))
 
 
 def get_elapsed_ms(incident_id: int) -> int | None:

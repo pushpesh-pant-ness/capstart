@@ -259,6 +259,7 @@ Useful for iterating on agent code without rebuilding the image each time:
 ```bash
 kubectl port-forward -n monitoring svc/prometheus 9090:9090 &
 kubectl port-forward -n monitoring svc/loki 3100:3100 &
+kubectl port-forward -n agent svc/postgres 5432:5432 &
 
 cd agent
 python -m venv .venv && . .venv/bin/activate   # or .venv\Scripts\activate on Windows
@@ -267,7 +268,7 @@ pip install -r requirements.txt
 export PROMETHEUS_URL=http://localhost:9090
 export LOKI_URL=http://localhost:3100
 export KUBE_IN_CLUSTER=false   # uses your local kubeconfig instead of in-cluster SA
-export AUDIT_DB_PATH=./audit.db
+export POSTGRES_HOST=localhost   # via the port-forward above instead of in-cluster DNS
 
 # Reuse the same .env you created in step 2 instead of re-typing credentials:
 cp ../.env .env   # pydantic-settings (see app/config.py) loads .env automatically

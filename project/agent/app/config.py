@@ -35,7 +35,20 @@ class Settings(BaseSettings):
     # app/graph/guardrail.py). See app/graph/nodes/plan.py.
     llm_authors_action: bool = False
 
-    audit_db_path: str = "/data/audit.db"
+    # PostgreSQL audit store (see agent/k8s/postgres.yaml) - durable across
+    # agent pod restarts/redeploys, unlike the old SQLite-on-emptyDir file.
+    postgres_host: str = "postgres.agent.svc.cluster.local"
+    postgres_port: int = 5432
+    postgres_db: str = "agent"
+    postgres_user: str = "agent"
+    postgres_password: str = "capstart-agent-demo"
+
+    @property
+    def database_dsn(self) -> str:
+        return (
+            f"postgresql://{self.postgres_user}:{self.postgres_password}"
+            f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+        )
 
     # Set to False to use the local kubeconfig instead of in-cluster service account
     # (useful when running the agent process on your laptop against the kind cluster).

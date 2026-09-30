@@ -11,7 +11,6 @@ import os
 import unittest
 from unittest.mock import patch
 
-os.environ.setdefault("AUDIT_DB_PATH", os.path.join(os.path.dirname(__file__), "_test_audit.db"))
 os.environ.setdefault("KUBE_IN_CLUSTER", "false")
 
 from app import bedrock_client

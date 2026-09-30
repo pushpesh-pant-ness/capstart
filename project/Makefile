@@ -10,7 +10,7 @@ CLUSTER_NAME := capstart
 IMAGE := capstart/remediation-agent:local
 
 .PHONY: cluster-up cluster-down namespaces workloads monitoring \
-        agent-image agent-load agent-rbac agent-secret agent-deploy deploy-all \
+        agent-image agent-load agent-rbac postgres-deploy agent-secret agent-deploy deploy-all \
         logs-agent audit-list \
         inject-crashloop inject-node inject-node-auto inject-service inject-networkpolicy inject-replica \
         revert-crashloop revert-node revert-service revert-networkpolicy revert-replica \
@@ -54,6 +54,10 @@ agent-load: agent-image
 agent-rbac: namespaces
 	kubectl apply -f agent/k8s/rbac.yaml
 
+postgres-deploy: namespaces
+	kubectl apply -f agent/k8s/postgres.yaml
+	kubectl rollout status deployment/postgres -n agent --timeout=120s
+
 # Reads AWS credentials from a git-ignored .env file (copy .env.example -> .env
 # and fill it in first). Never commits real credentials.
 agent-secret: namespaces
@@ -61,7 +65,7 @@ agent-secret: namespaces
 		--from-env-file=.env \
 		--dry-run=client -o yaml | kubectl apply -f -
 
-agent-deploy: agent-load agent-rbac
+agent-deploy: agent-load agent-rbac postgres-deploy
 	kubectl apply -f agent/k8s/deployment.yaml
 
 deploy-all: workloads monitoring agent-secret agent-deploy
@@ -73,9 +77,8 @@ logs-agent:
 	kubectl logs -n agent deploy/agent -f
 
 audit-list:
-	kubectl exec -n agent deploy/agent -- python -c \
-		"import sqlite3; c=sqlite3.connect('/data/audit.db'); c.row_factory=sqlite3.Row; \
-		 [print(dict(r)) for r in c.execute('select id,incident_type,status,received_at from incidents order by id')]"
+	kubectl exec -n agent deploy/postgres -- psql -U agent -d agent -c \
+		"select id,incident_type,status,received_at from incidents order by id"
 
 ## --- Fault injection (see injector/) ---------------------------------
 

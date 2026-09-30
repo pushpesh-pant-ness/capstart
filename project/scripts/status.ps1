@@ -30,8 +30,8 @@ catch {
 }
 
 Write-Host "`n== audit log (incidents table) ==" -ForegroundColor Cyan
-kubectl exec -n agent deploy/agent -- python -c `
-    "import sqlite3; c=sqlite3.connect('/data/audit.db'); c.row_factory=sqlite3.Row; [print(dict(r)) for r in c.execute('select id,incident_type,status,decision_by,received_at from incidents order by id')]"
+kubectl exec -n agent deploy/postgres -- psql -U agent -d agent -c `
+    "select id,incident_type,status,decision_by,received_at from incidents order by id"
 
 Write-Host ""
 Write-Host "UI:            http://localhost:8000"

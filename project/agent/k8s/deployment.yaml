@@ -44,8 +44,10 @@ spec:
               value: "true"
             - name: KUBE_IN_CLUSTER
               value: "true"
-            - name: AUDIT_DB_PATH
-              value: /data/audit.db
+            - name: POSTGRES_HOST
+              value: postgres.agent.svc.cluster.local
+            - name: POSTGRES_PORT
+              value: "5432"
             - name: DIAGNOSIS_HISTORY_EXAMPLES
               value: "3"
             # Default OFF: remediation action always comes from the deterministic
@@ -63,6 +65,8 @@ spec:
           envFrom:
             - secretRef:
                 name: aws-bedrock-credentials
+            - secretRef:
+                name: postgres-credentials
           resources:
             requests:
               cpu: 50m
@@ -70,18 +74,12 @@ spec:
             limits:
               cpu: 250m
               memory: 256Mi
-          volumeMounts:
-            - name: audit-data
-              mountPath: /data
           readinessProbe:
             httpGet:
               path: /healthz
               port: 8000
             initialDelaySeconds: 3
             periodSeconds: 5
-      volumes:
-        - name: audit-data
-          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

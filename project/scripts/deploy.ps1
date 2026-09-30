@@ -98,6 +98,8 @@ if (-not $SkipImageBuild) {
 }
 Invoke-Native "Loading agent image into kind" { kind load docker-image capstart/remediation-agent:local --name capstart }
 Invoke-Native "Applying agent RBAC" { kubectl apply -f agent/k8s/rbac.yaml }
+Invoke-Native "Deploying Postgres (audit/incident store)" { kubectl apply -f agent/k8s/postgres.yaml }
+Invoke-Native "Waiting for Postgres to become Ready" { kubectl rollout status deployment/postgres -n agent --timeout=120s }
 Invoke-Native "Creating aws-bedrock-credentials secret from .env" {
     kubectl create secret generic aws-bedrock-credentials -n agent --from-env-file=.env --dry-run=client -o yaml |
         kubectl apply -f -

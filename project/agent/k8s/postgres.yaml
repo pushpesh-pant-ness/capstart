@@ -1,0 +1,151 @@
+# PostgreSQL - durable incident/audit store for the agent (replaces the old
+# SQLite-on-emptyDir file, which was wiped on every agent pod restart/
+# redeploy). Runs as a Deployment backed by a PVC, exposed only inside the
+# cluster (ClusterIP, no NodePort) - never reachable from outside kind, so
+# the default demo credentials below are fine for this local demo only.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-credentials
+  namespace: agent
+type: Opaque
+stringData:
+  POSTGRES_USER: agent
+  POSTGRES_PASSWORD: capstart-agent-demo
+  POSTGRES_DB: agent
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init-schema
+  namespace: agent
+data:
+  # Runs once via /docker-entrypoint-initdb.d on first init of an empty PGDATA
+  # volume - see agent/app/audit.py for the same schema kept in sync in code
+  # (CREATE TABLE IF NOT EXISTS, so re-running it there is always a no-op).
+  001_schema.sql: |
+    CREATE TABLE IF NOT EXISTS incidents (
+        id SERIAL PRIMARY KEY,
+        fingerprint TEXT,
+        alertname TEXT,
+        incident_type TEXT,
+        namespace TEXT,
+        resource_name TEXT,
+        severity TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        raw_alert TEXT,
+        context_snapshot TEXT,
+        diagnosis_text TEXT,
+        remediation_plan TEXT,
+        confidence_score REAL,
+        computed_severity TEXT,
+        escalation_reason TEXT,
+        decision_by TEXT,
+        decision_at TEXT,
+        execution_result TEXT,
+        received_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS incident_steps (
+        id SERIAL PRIMARY KEY,
+        incident_id INTEGER NOT NULL REFERENCES incidents(id) ON DELETE CASCADE,
+        step TEXT NOT NULL,
+        direction TEXT NOT NULL,
+        note TEXT,
+        payload TEXT,
+        step_ms INTEGER,
+        elapsed_ms INTEGER,
+        "timestamp" TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_incident_steps_incident_id ON incident_steps (incident_id);
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+  namespace: agent
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: agent
+  labels:
+    app: postgres
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # single RWO PVC - never run two postgres pods at once
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          envFrom:
+            - secretRef:
+                name: postgres-credentials
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 512Mi
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+            - name: init-schema
+              mountPath: /docker-entrypoint-initdb.d
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+      volumes:
+        - name: postgres-data
+          persistentVolumeClaim:
+            claimName: postgres-data
+        - name: init-schema
+          configMap:
+            name: postgres-init-schema
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: agent
+spec:
+  type: ClusterIP
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432

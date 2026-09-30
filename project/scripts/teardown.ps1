@@ -1,8 +1,9 @@
 <#
 .SYNOPSIS
-  Deletes the kind cluster and everything running in it (agent, monitoring,
-  demo workloads). The SQLite audit log lives in an emptyDir volume, so it
-  is deleted along with the cluster - there is no other state to clean up.
+  Deletes the kind cluster and everything running in it (agent, Postgres,
+  monitoring, demo workloads). The Postgres PVC is backed by kind's local-path
+  storage on the node's container filesystem, so it is deleted along with the
+  cluster - there is no other state to clean up.
 
 .EXAMPLE
   ./scripts/teardown.ps1
