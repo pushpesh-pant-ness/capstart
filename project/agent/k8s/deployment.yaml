@@ -16,6 +16,11 @@ spec:
         app: agent
     spec:
       serviceAccountName: agent
+      # Without this, Kubernetes auto-injects a POSTGRES_PORT=tcp://<ip>:5432
+      # env var for every Service in this namespace (Docker-links compat),
+      # which collides with and overrides the explicit POSTGRES_PORT=5432
+      # below - crashing pydantic-settings (int_parsing on "tcp://...").
+      enableServiceLinks: false
       # Fault injection in this demo only targets worker nodes (see injector/).
       # Pin the agent to the control-plane so it can never become collateral
       # damage of the very node/pod faults it's supposed to remediate.
