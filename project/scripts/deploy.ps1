@@ -103,6 +103,11 @@ Invoke-Native "Creating aws-bedrock-credentials secret from .env" {
         kubectl apply -f -
 }
 Invoke-Native "Deploying agent" { kubectl apply -f agent/k8s/deployment.yaml }
+if (-not $SkipImageBuild) {
+    # deployment.yaml pins a static ":local" tag, so `kubectl apply` sees no spec diff
+    # after a rebuild and would otherwise leave the old code running in the existing pod.
+    Invoke-Native "Restarting agent to pick up rebuilt image" { kubectl rollout restart deployment/agent -n agent }
+}
 Invoke-Native "Waiting for agent to become Ready" { kubectl rollout status deployment/agent -n agent --timeout=120s }
 
 Write-Host ""

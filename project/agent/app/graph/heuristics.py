@@ -38,10 +38,13 @@ def rule_based_severity(incident_type: str, context: dict[str, Any], alert_sever
     if incident_type == "replica_mismatch":
         spec = _first_metric_value(context.get("spec_replicas"))
         available = _first_metric_value(context.get("available_replicas"))
+        unavailable = _first_metric_value(context.get("unavailable_replicas")) or 0
         if spec is not None and available == 0:
             return "P1", "Zero replicas available out of spec - full outage"
         if spec is not None and available is not None and available < spec:
             return "P2", f"{available:.0f}/{spec:.0f} replicas available"
+        if unavailable > 0:
+            return "P2", f"{unavailable:.0f} unavailable replica(s) (e.g. ImagePullBackOff on the surge pod)"
         return "P3", "Replica mismatch reported but current counts look close"
 
     # Unknown incident_type: fall back to whatever Alertmanager already said.

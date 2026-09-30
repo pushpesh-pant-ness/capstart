@@ -92,7 +92,17 @@ data:
               description: "blackbox-exporter can no longer reach {{ $labels.instance }}, likely a NetworkPolicy is blocking traffic."
 
           - alert: DeploymentReplicaMismatch
-            expr: kube_deployment_spec_replicas{namespace="demo"} != kube_deployment_status_replicas_available{namespace="demo"}
+            # spec_replicas != status_replicas_available never fires under RollingUpdate
+            # (old replicas stay Available while only the surge replica fails), so key off
+            # the unavailable-replica count instead. `unless` excludes the window where a
+            # pod is CrashLoopBackOff-ing (fires within 15s, long before the crashloop rule's
+            # >3-restarts-in-5m threshold), so the two alerts don't race to misclassify the
+            # same crashloop fault as replica_mismatch.
+            expr: |
+              kube_deployment_status_replicas_unavailable{namespace="demo"} > 0
+              unless on(namespace) count by (namespace) (
+                kube_pod_container_status_waiting_reason{namespace="demo", reason="CrashLoopBackOff"} == 1
+              )
             for: 15s
             labels:
               severity: warning

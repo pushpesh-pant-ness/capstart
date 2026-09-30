@@ -83,5 +83,12 @@ def build_context(incident_id: int, classified: ClassifiedAlert) -> dict[str, An
             incident_id,
             f'kube_deployment_status_replicas_available{{namespace="{ns}", deployment="{name}"}}',
         )
+        # spec vs. available alone looks "healthy" under RollingUpdate (old replicas stay
+        # Available while only the surge replica fails) - unavailable_replicas is what the
+        # alert actually fires on and is what makes the failure visible to the diagnosis.
+        context["unavailable_replicas"] = query_prometheus(
+            incident_id,
+            f'kube_deployment_status_replicas_unavailable{{namespace="{ns}", deployment="{name}"}}',
+        )
 
     return context
