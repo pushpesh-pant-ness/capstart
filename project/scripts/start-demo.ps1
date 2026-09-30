@@ -38,6 +38,7 @@ Start-Process "http://localhost:8000"
 Start-Process "http://localhost:9090/alerts"
 
 Write-Host ""
-Write-Host "Ready. Inject a fault with one command, e.g.:" -ForegroundColor Green
+Write-Host "Ready. Inject a fault with one command - it auto-approves, waits for the" -ForegroundColor Green
+Write-Host "executor, and prints PASS/FAIL, e.g.:"
 Write-Host "  ./scripts/inject.ps1 -Incident crashloop"
-Write-Host "  ./scripts/inject.ps1 -Incident node -AutoRevertAfter 30   # node needs the extra flag - see instructions.md"
+Write-Host "  ./scripts/inject.ps1 -Incident node   # handles the kubelet revert/retry dance itself"

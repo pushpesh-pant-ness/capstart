@@ -58,10 +58,27 @@ if (-not $SkipClusterCreate) {
     }
 }
 
+# Installs a systemd watchdog inside each worker node container that
+# auto-restarts kubelet if it's been stopped too long, no matter why (any
+# injector, or a human running `docker exec ... systemctl stop kubelet` by
+# hand) - so node_not_ready always self-heals within a bounded time instead
+# of depending on someone remembering to run `injector/node_not_ready.py
+# --revert`. Idempotent (systemctl enable --now is safe to re-run).
+Invoke-Native "Installing kubelet auto-repair watchdog on worker nodes" {
+    foreach ($node in @("capstart-worker", "capstart-worker2")) {
+        Get-Content "cluster/kubelet-watchdog.sh" -Raw | docker exec -i $node bash -c "cat > /usr/local/bin/kubelet-watchdog.sh"
+        docker exec $node chmod +x /usr/local/bin/kubelet-watchdog.sh
+        Get-Content "cluster/kubelet-watchdog.service" -Raw | docker exec -i $node bash -c "cat > /etc/systemd/system/kubelet-watchdog.service"
+        docker exec $node systemctl daemon-reload
+        docker exec $node systemctl enable --now kubelet-watchdog
+    }
+}
+
 # --- Namespaces + demo workloads -------------------------------------------
 
 Invoke-Native "Applying namespaces" { kubectl apply -f cluster/workloads/namespaces.yaml }
 Invoke-Native "Applying demo workloads" { kubectl apply -f cluster/workloads/demo-app.yaml }
+
 
 # --- Monitoring stack --------------------------------------------------
 

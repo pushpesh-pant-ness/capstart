@@ -1,0 +1,12 @@
+[Unit]
+Description=Kubelet auto-repair watchdog (simulates real infra self-healing)
+After=network.target kubelet.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/kubelet-watchdog.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

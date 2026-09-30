@@ -143,21 +143,48 @@ Also open in a browser:
 
 ## 5. Run one incident end-to-end (Phase 1: CrashLoopBackOff)
 
+`./scripts/inject.ps1` is fully automated: it injects the fault, waits for
+Prometheus/Alertmanager to fire and the agent to finish diagnosis, approves
+the plan itself, waits for the executor to finish, and prints a `PASS`/`FAIL`
+line - no manual UI clicking, `curl`, or `psql` querying required. It also
+refuses to run if the cluster/audit log isn't in a clean baseline state
+first (see [§6](#6-run-the-remaining-mvp-incidents-phase-2)), which is the
+single biggest cause of "the agent isn't solving it" - a fault left over
+from a previous run stacking on top of a new one.
+
 **Inject the fault:**
 
 ```powershell
 ./scripts/inject.ps1 -Incident crashloop
 ```
 
-This patches the `demo-web` Deployment with a command that exits immediately,
-after stashing the original command in an annotation. Watch it happen:
+Expected output (each `.` is a 5s poll):
 
-```bash
-kubectl get pods -n demo -l app=demo-web -w
-# STATUS should cycle: Running -> Error -> CrashLoopBackOff
+```
+==> Pre-flight: checking cluster is in a clean baseline state
+[injector] patch deployment: demo/demo-web -> crash on start
+Fault injected: demo-web pods will now CrashLoopBackOff.
+==> Waiting for the 'crashloop' alert to fire and the agent to finish diagnosis......
+Incident #9 diagnosed and plan ready (crashloop).
+Approved incident #9.
+==> Waiting for the executor to finish (incident #9).
+PASS - incident #9 (demo-web-...) -> status=executed
+{"pod": "...", "deployment_reverted": true, "pods_deleted": [...], "status": "executed"}
+Detail: http://localhost:8000/incident/9
 ```
 
-**Watch the agent's own log** in another terminal - this is the "what is it
+If you'd rather watch every step and click Approve/Reject yourself (useful
+the first time, to see what the agent actually does), add `-Manual`:
+
+```powershell
+./scripts/inject.ps1 -Incident crashloop -Manual
+```
+
+This still injects the fault and waits/reports the final result for you, it
+just leaves the incident `pending` instead of auto-approving it.
+
+**Watch the agent's own log** in another terminal (or the window
+`start-demo.ps1` already opened for you) - this is the "what is it
 sending/receiving at each step" view in real time:
 
 ```bash
@@ -176,17 +203,14 @@ order:
 6. `step=bedrock.converse <-- RECV` - Nova's diagnosis text.
 7. `step=remediation.plan_ready --- INFO` - the fixed template plan (`action=delete_pod`).
 
-**Verify in the UI:** refresh http://localhost:8000 - an incident with status
-`pending` should appear. Click into it to see, in order: the raw alert, the
+**Verify in the UI:** open http://localhost:8000/incident/&lt;id&gt; (the
+script prints the exact URL) to see, in order: the raw alert, the
 Prometheus/Loki context, the Bedrock diagnosis, the proposed plan, and a full
 timeline of every SEND/RECV event above (same information as the terminal
 log, rendered for a human).
 
-**Approve it:**
-
-Click **Approve** in the UI (or `curl -X POST http://localhost:8000/incident/<id>/approve`).
-
-The agent log will now show:
+The agent log will now show (whether approval came from the script or a
+UI click):
 
 8. `step=executor.dispatch ==> ACTION` - "human approved, executing now".
 9. `step=k8s.patch_deployment --> SEND` / `<-- RECV` - reverting the Deployment's container command back to the original (read from the annotation the injector stashed).
@@ -212,32 +236,41 @@ the UI.
 ```
 
 You should see one row: `incident_type=crashloop`, `status=resolved` (or
-`executed` if the alert hasn't re-evaluated yet), `decision_by=human`.
+`executed` if the alert hasn't re-evaluated yet), `decision_by=human` (or
+whatever you passed as the approver - the script defaults to `human`).
 
-To try a **Reject** instead, re-run the injector and click **Reject** in the
-UI - the agent log will show `step=ui.decision ==> ACTION {"decision":
-"reject", ...}` and no `k8s.*` calls will ever be made; the pod stays broken
-until you manually run `./scripts/inject.ps1 -Incident crashloop -Revert`.
+To try a **Reject** instead, re-run the injector with `-Manual` and click
+**Reject** in the UI - the agent log will show `step=ui.decision ==> ACTION
+{"decision": "reject", ...}` and no `k8s.*` calls will ever be made; the pod
+stays broken until you manually run `./scripts/inject.ps1 -Incident
+crashloop -Revert`.
 
 ---
 
 ## 6. Run the remaining MVP incidents (Phase 2)
 
-Each follows the same pattern: inject -> watch the agent log -> approve in
-the UI -> verify the fix -> confirm the alert clears.
+Each is a single command - inject, wait, auto-approve, verify, all handled
+for you. Run them **one at a time** and let each fully finish (script exits
+0 on success) before starting the next; the pre-flight check will refuse to
+run if a previous fault/incident is still active, since demo-web/demo-api
+sharing a namespace means stacked faults cascade into confusing
+false-alarm alerts for each other.
 
-| # | Inject | What it breaks | Watch for the fix |
-|---|--------|-----------------|--------------------|
-| 2 | `./scripts/inject.ps1 -Incident node -AutoRevertAfter 30` | stops kubelet inside a kind worker container via `docker exec` | this one command re-starts the kubelet automatically 30s after injecting, giving you time to click Approve first; the agent cordons the node and polls every 5s for up to 5 minutes (60 attempts) - as soon as it sees `Ready` it uncordons automatically. If you instead ran plain `inject.ps1 -Incident node` and forgot to revert, the incident will show `execution_failed` with a `manual_hint` telling you to run `./scripts/inject.ps1 -Incident node -Revert` and then click **Retry** in the UI |
-| 3 | `./scripts/inject.ps1 -Incident service` | breaks `demo-web` Service's selector | `kubectl get endpoints -n demo demo-web -w` regains addresses after `k8s.patch_service` |
-| 4 | `./scripts/inject.ps1 -Incident networkpolicy` | applies a deny-all-ingress NetworkPolicy to demo-web | `NetworkPolicyBlockingTraffic` alert clears after `k8s.delete_networkpolicy` |
-| 5 | `./scripts/inject.ps1 -Incident replica` | sets `demo-api`'s image to a nonexistent tag | `kubectl get deployment -n demo demo-api -w` reaches full availability after `k8s.patch_deployment` restores the image and triggers a rollout restart |
+| # | Command | What it breaks | Allow-listed fix |
+|---|---------|-----------------|--------------------|
+| 1 | `./scripts/inject.ps1 -Incident crashloop` | broken container command on `demo-web` | `delete_pod` (+ restore stashed command) |
+| 2 | `./scripts/inject.ps1 -Incident node` | stops kubelet inside a kind worker container via `docker exec` | `recover_node` (cordon -> poll -> uncordon) |
+| 3 | `./scripts/inject.ps1 -Incident service` | breaks `demo-web` Service's selector | `fix_service_selector` |
+| 4 | `./scripts/inject.ps1 -Incident networkpolicy` | applies a deny-all-ingress NetworkPolicy to demo-web | `delete_blocking_networkpolicy` |
+| 5 | `./scripts/inject.ps1 -Incident replica` | sets `demo-api`'s image to a nonexistent tag | `rollout_restart_deployment` (+ restore stashed image) |
 
-Each also supports `-Revert` (e.g. `./scripts/inject.ps1 -Incident node -Revert`)
-to manually undo a fault **without** going through the agent, useful if you
-want to abandon a demo run.
+Each also supports `-Revert` (e.g. `./scripts/inject.ps1 -Incident node
+-Revert`) to manually undo a fault **without** going through the agent at
+all, useful if you want to abandon a run.
 
-On macOS/Linux: `make inject-<name>` / `make revert-<name>` wrap all five (see [Makefile](Makefile)).
+On macOS/Linux: `make inject-<name>` / `make revert-<name>` wrap the same
+underlying injector scripts (see [Makefile](Makefile)) - these are the
+plain, non-automated calls, so you'll still approve manually in the UI.
 
 > **Note on incident #2 (Node NotReady):** a node whose own kubelet is down
 > cannot run a Kubernetes-scheduled fix - nothing can start on that node,
@@ -245,12 +278,30 @@ On macOS/Linux: `make inject-<name>` / `make revert-<name>` wrap all five (see [
 > agent's remediation is limited to cordon (safe, via the API) + wait/report;
 > the actual kubelet restart is inherently out-of-band (`docker exec` in this
 > kind demo, node auto-repair/cluster autoscaler in a real cloud cluster).
-> Use `-AutoRevertAfter <seconds>` on `inject.ps1` so this happens automatically
-> instead of forgetting it and watching all 60 retry attempts fail. If you cordon
-> a node and then abandon the demo without reverting, run `kubectl uncordon <node>`
-> manually to clean up.
+>
+> `deploy.ps1` installs a **kubelet-watchdog** systemd service on every
+> worker node container (see [cluster/kubelet-watchdog.sh](cluster/kubelet-watchdog.sh))
+> that auto-restarts kubelet if it's been stopped for >= 90s, no matter why -
+> this simulates real infra self-healing (systemd `Restart=`, cloud node
+> auto-repair) so **`node_not_ready` always resolves on its own within ~90s,
+> regardless of how you injected it** (raw `python
+> injector/node_not_ready.py`, `inject.ps1`, or `docker exec` by hand -
+> `docker exec capstart-worker systemctl status kubelet-watchdog` to check
+> it's running). `./scripts/inject.ps1 -Incident node` still reverts the
+> kubelet itself right after approving (faster/more deterministic than
+> waiting on the watchdog), and falls back to one `/retry` call in the rare
+> case the executor's 5-minute budget expires first - the watchdog is the
+> safety net underneath both paths, not a replacement for them.
+>
+> If you ever see an incident stuck at `execution_failed` with a
+> `manual_hint` about the kubelet, just wait ~90s for the watchdog (check
+> `kubectl get nodes`), then retry:
+> ```powershell
+> Invoke-RestMethod -Uri "http://localhost:8000/incident/<id>/retry" -Method POST
+> ```
 
 ---
+
 
 ## 7. Running the agent locally instead of in-cluster (optional)
 
@@ -287,6 +338,13 @@ Desktop), then re-apply it and restart Alertmanager.
 
 ## 8. Troubleshooting
 
+- **`inject.ps1` refuses to run ("cluster is not clean")**: either a node is
+  `NotReady`/cordoned or an incident is still `pending`/`in_progress`/
+  `escalated` in the audit log from a previous run. Run `./scripts/status.ps1`
+  to see which, resolve it (see the Node NotReady note in §6, or open the
+  incident URL and Approve/Reject/Retry it), then re-run. Don't reach for
+  `-Force` unless you specifically want to test overlapping faults - that's
+  the #1 cause of "the agent isn't solving it" reports.
 - **Alert never fires**: check http://localhost:9090/targets - if a scrape
   target is `DOWN`, the underlying metric never gets populated. Check
   `kubectl get pods -n monitoring` for crashing exporters.
