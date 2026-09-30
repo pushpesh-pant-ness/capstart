@@ -6,6 +6,7 @@ Approval UI - minimal FastAPI + HTMX. Pages:
   POST /incident/{id}/approve kicks off the executor in the background (keeps retrying until resolved)
   POST /incident/{id}/reject  records rejection, no action taken
   POST /incident/{id}/retry   re-runs the executor for an incident that exhausted its retry budget
+  POST /incident/{id}/reprocess  re-runs the diagnosis graph for an escalated incident
 """
 from __future__ import annotations
 
@@ -21,6 +22,8 @@ from fastapi.templating import Jinja2Templates
 from .. import audit
 from ..cluster_status import get_nodes, get_pods
 from ..executor import execute_remediation
+from ..graph import graph as diagnosis_graph
+from ..graph.state import IncidentState
 from ..logging_utils import get_timeline, log_step
 
 router = APIRouter()
@@ -40,10 +43,11 @@ def _prepare(incident: dict[str, Any]) -> dict[str, Any]:
     incident = dict(incident)
     for field in ("raw_alert", "context_snapshot", "remediation_plan", "execution_result"):
         incident[field] = _parse_json_field(incident.get(field))
+    incident["duration_seconds"] = audit.duration_seconds(incident)
     return incident
 
 
-_ACTIVE_STATUSES = {"pending", "approved", "in_progress"}
+_ACTIVE_STATUSES = {"pending", "approved", "in_progress", "escalated"}
 
 
 def _run_remediation(incident_id: int, plan: dict[str, Any], namespace: str, resource_name: str) -> None:
@@ -139,4 +143,48 @@ def reject(incident_id: int, approver: str = Form(default="human")) -> RedirectR
     now = datetime.now(timezone.utc).isoformat()
     audit.update_incident(incident_id, status="rejected", decision_by=approver, decision_at=now)
 
+    return RedirectResponse(f"/incident/{incident_id}", status_code=303)
+
+
+async def _reprocess(incident_id: int, raw_alert: dict[str, Any], namespace: str, resource_name: str, incident_type: str) -> None:
+    initial_state: IncidentState = {
+        "incident_id": incident_id,
+        "incident_type": incident_type,
+        "namespace": namespace,
+        "resource_name": resource_name,
+        "alert_severity": (raw_alert.get("labels", {}) or {}).get("severity", "warning"),
+        "labels": raw_alert.get("labels", {}) or {},
+        "annotations": raw_alert.get("annotations", {}) or {},
+        "raw_alert": raw_alert,
+    }
+    final_state = await diagnosis_graph.ainvoke(initial_state)
+    audit.update_incident(
+        incident_id,
+        context_snapshot=final_state.get("context"),
+        diagnosis_text=final_state.get("diagnosis_text"),
+        confidence_score=final_state.get("confidence_score"),
+        computed_severity=final_state.get("severity"),
+    )
+    escalation_reason = final_state.get("escalation_reason")
+    if escalation_reason:
+        audit.update_incident(incident_id, status="escalated", escalation_reason=escalation_reason)
+    else:
+        audit.update_incident(
+            incident_id, status="pending", escalation_reason=None, remediation_plan=final_state.get("remediation_plan")
+        )
+
+
+@router.post("/incident/{incident_id}/reprocess")
+async def reprocess(incident_id: int, background_tasks: BackgroundTasks) -> RedirectResponse:
+    """Re-run the diagnosis graph from scratch for an escalated incident (e.g. a
+    transient Bedrock hiccup) instead of leaving it stuck for a human to fix by hand."""
+    incident = audit.get_incident(incident_id)
+    if not incident:
+        return HTMLResponse("Incident not found", status_code=404)  # type: ignore[return-value]
+
+    log_step(incident_id, "ui.decision", "ACTION", {"decision": "reprocess"}, note="Human asked the graph to re-run diagnosis")
+    raw_alert = _parse_json_field(incident.get("raw_alert")) or {}
+    background_tasks.add_task(
+        _reprocess, incident_id, raw_alert, incident["namespace"], incident["resource_name"], incident["incident_type"]
+    )
     return RedirectResponse(f"/incident/{incident_id}", status_code=303)

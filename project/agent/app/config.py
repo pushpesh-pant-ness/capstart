@@ -17,6 +17,24 @@ class Settings(BaseSettings):
     bedrock_model_id: str = "amazon.nova-lite-v1:0"
     bedrock_enabled: bool = True
 
+    # Optional LangSmith tracing of the diagnosis pipeline (context gathering +
+    # Bedrock calls) - off by default. Also requires LANGSMITH_API_KEY to be set
+    # (langsmith reads that directly from the environment). See app/observability.py.
+    langsmith_enabled: bool = False
+    langsmith_project: str = "capstart-remediation-agent"
+
+    # How many past resolved/executed incidents of the same type to retrieve
+    # as grounding examples for the Bedrock diagnosis prompt (0 disables it).
+    diagnosis_history_examples: int = 3
+
+    # Default OFF: the remediation action always comes from the deterministic
+    # allow-list (remediation/templates.py), regardless of what the LLM says -
+    # only its title/steps narrative is used. Set true to instead trust the
+    # LLM's own action choice (still rejected by the guardrail node if it
+    # isn't the one allow-listed action for the incident_type - see
+    # app/graph/guardrail.py). See app/graph/nodes/plan.py.
+    llm_authors_action: bool = False
+
     audit_db_path: str = "/data/audit.db"
 
     # Set to False to use the local kubeconfig instead of in-cluster service account

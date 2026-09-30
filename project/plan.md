@@ -16,10 +16,16 @@ via Alertmanager webhooks. The agent:
 
 1. **Understands the problem** — classifies the incident type from alert
    labels, pulls supporting context (Prometheus metrics + Loki logs), and
-   generates a human-readable diagnosis using AWS Bedrock.
-2. **Proposes a solution** — drafts a fixed, deterministic remediation action
-   template appropriate to the incident type (not LLM-generated actions, to
-   keep execution safe and predictable).
+   runs a LangGraph diagnosis pipeline (investigate -> severity ->
+   historical -> RCA) that produces a human-readable diagnosis and a
+   confidence score using AWS Bedrock.
+2. **Proposes a solution** — an LLM authors the remediation plan's title and
+   steps; the action itself comes from a deterministic per-incident-type
+   allow-list by default (`LLM_AUTHORS_ACTION=false`), or optionally from the
+   LLM's own choice if enabled, always re-checked against that same allow-list
+   by a deterministic guardrail node before it can reach a human; anything
+   that fails the check is escalated instead of shown as a
+   plan (see [diagram.md](diagram.md) for the graph).
 3. **Requires human approval** — every proposed remediation is shown in a
    minimal web UI and **must** be explicitly approved or rejected by a human
    before anything is executed. There is no auto-remediation path.
@@ -48,9 +54,14 @@ plan, human decision, execution result, timestamps).
 - No heavyweight dashboards (Grafana) required for MVP.
 - No custom CNI — use `kind`'s default CNI (kindnet); only manipulate
   higher-level objects (NetworkPolicy, Services, Deployments, nodes).
-- No LLM-generated remediation *actions* — Bedrock is used only to generate
-  human-readable explanation/diagnosis text; the actual remediation logic is
-  fixed, deterministic rule-based templates.
+- No remediation ever executes without an explicit human approval, regardless
+  of whether the plan came from the LLM, the historical auto-replay path, or
+  the deterministic fallback template - the guardrail node only decides
+  pending_approval vs escalated, never approved vs executed.
+- No free-form LLM parameters reach the Kubernetes API - the LLM may only
+  name one of the pre-registered actions in remediation/templates.py; target
+  namespace/resource are always injected server-side from the alert itself,
+  never accepted from the LLM's output.
 
 ## Incident Catalog
 
@@ -84,10 +95,14 @@ diagrams. Summary of chosen stack:
 - **Metrics**: Prometheus + Alertmanager + kube-state-metrics + node-exporter
 - **Logs**: Loki (single-binary, filesystem storage, short retention) +
   Promtail (DaemonSet)
-- **Agent**: Python (FastAPI)
-  - Rule engine: alert labels -> incident type + fixed remediation template
-  - AWS Bedrock: generates the human-readable diagnosis/explanation text only
-  - Executor: `kubernetes` Python client, invoked only after approval
+- **Agent**: Python (FastAPI + LangGraph)
+  - Rule engine: alert labels -> incident type (deterministic classification)
+  - Diagnosis graph (`app/graph`): investigate -> severity -> historical ->
+    supervisor -> (auto_plan | rca -> plan) -> guardrail -> escalate|pending
+  - AWS Bedrock: RCA (diagnosis text + confidence) and plan authoring
+    (action/title/steps), both guarded - RCA escalates on low confidence,
+    the guardrail node escalates on an invalid/hallucinated action or target
+  - Executor: `kubernetes` Python client, invoked only after human approval
   - Audit log: SQLite
 - **Approval UI**: Minimal FastAPI + HTML/HTMX page (Approve/Reject per
   pending incident)

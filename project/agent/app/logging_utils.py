@@ -13,6 +13,7 @@ import json
 import logging
 import sys
 import threading
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -27,6 +28,10 @@ _ARROWS = {"SEND": "-->", "RECV": "<--", "INFO": "---", "ACTION": "==>"}
 
 # In-memory ring of recent step events per incident, shown in the UI detail page.
 _timelines: dict[int, list[dict[str, Any]]] = {}
+# Monotonic clock (immune to system clock adjustments) start time per incident,
+# used to compute per-step and cumulative latency - see log_step().
+_start_times: dict[int, float] = {}
+_last_event_times: dict[int, float] = {}
 _lock = threading.Lock()
 
 
@@ -47,7 +52,21 @@ def log_step(
     """Log + record one pipeline step. direction: SEND | RECV | INFO | ACTION."""
     arrow = _ARROWS.get(direction, "---")
     timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    now = time.monotonic()
+
+    step_ms: int | None = None
+    elapsed_ms: int | None = None
+    if incident_id is not None:
+        with _lock:
+            start = _start_times.setdefault(incident_id, now)
+            last = _last_event_times.get(incident_id, start)
+            elapsed_ms = round((now - start) * 1000)
+            step_ms = round((now - last) * 1000)
+            _last_event_times[incident_id] = now
+
     header = f"[{timestamp}] incident={incident_id or '-'} step={step} {arrow} {direction}"
+    if elapsed_ms is not None:
+        header += f" (+{step_ms}ms, total {elapsed_ms}ms)"
 
     lines = [header]
     if note:
@@ -65,6 +84,8 @@ def log_step(
         "direction": direction,
         "note": note,
         "payload": body_text,
+        "step_ms": step_ms,
+        "elapsed_ms": elapsed_ms,
     }
     if incident_id is not None:
         with _lock:
@@ -75,3 +96,18 @@ def log_step(
 def get_timeline(incident_id: int) -> list[dict[str, Any]]:
     with _lock:
         return list(_timelines.get(incident_id, []))
+
+
+def get_elapsed_ms(incident_id: int) -> int | None:
+    """Cumulative processing time so far for this incident, in milliseconds."""
+    with _lock:
+        if incident_id not in _start_times:
+            return None
+        return round((_last_event_times.get(incident_id, _start_times[incident_id]) - _start_times[incident_id]) * 1000)
+
+
+def reset_timeline(incident_id: int) -> None:
+    """Clear timing state, e.g. before a manual Retry restarts the clock for that incident."""
+    with _lock:
+        _start_times.pop(incident_id, None)
+        _last_event_times.pop(incident_id, None)

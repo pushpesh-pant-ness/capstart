@@ -2,8 +2,9 @@
 Webhook receiver: this is the front door of the agent. Alertmanager POSTs
 here whenever an alert rule fires or resolves (see monitoring/prometheus/
 alertmanager-config.yaml). Every incoming payload is logged in full, then
-each alert is classified, given supporting context, diagnosed via Bedrock,
-and turned into a pending remediation plan awaiting human approval.
+each alert is classified and handed to the diagnosis/planning graph
+(app/graph) - investigate -> severity -> historical -> supervisor ->
+(auto_plan | rca -> plan) -> guardrail -> pending_approval or escalated.
 """
 from __future__ import annotations
 
@@ -12,11 +13,11 @@ from typing import Any
 from fastapi import APIRouter, Request
 
 from . import audit
-from .bedrock_client import generate_diagnosis
 from .diagnosis.classifier import classify_alert
-from .diagnosis.context import build_context
+from .graph import graph
+from .graph.state import IncidentState
 from .logging_utils import log_step
-from .remediation.engine import build_plan
+from .observability import traceable
 
 router = APIRouter()
 
@@ -33,11 +34,14 @@ async def receive_alertmanager_webhook(request: Request) -> dict[str, Any]:
         f"{len(payload.get('alerts', []))} alert(s)",
     )
 
-    results = [_process_alert(alert) for alert in payload.get("alerts", [])]
+    results = []
+    for alert in payload.get("alerts", []):
+        results.append(await _process_alert(alert))
     return {"processed": results}
 
 
-def _process_alert(alert: dict[str, Any]) -> dict[str, Any]:
+@traceable(name="process_alert", run_type="chain")
+async def _process_alert(alert: dict[str, Any]) -> dict[str, Any]:
     fingerprint = alert.get("fingerprint", "")
     status = alert.get("status", "firing")
 
@@ -75,17 +79,40 @@ def _process_alert(alert: dict[str, Any]) -> dict[str, Any]:
         note="Rule engine classified the alert into an incident type",
     )
 
-    context = build_context(incident_id, classified)
-    audit.update_incident(incident_id, context_snapshot=context)
+    initial_state: IncidentState = {
+        "incident_id": incident_id,
+        "incident_type": classified.incident_type,
+        "namespace": classified.namespace,
+        "resource_name": classified.resource_name,
+        "alert_severity": classified.severity,
+        "labels": classified.labels,
+        "annotations": classified.annotations,
+        "raw_alert": alert,
+    }
+    final_state = await graph.ainvoke(initial_state)
 
-    diagnosis_text = generate_diagnosis(incident_id, classified.incident_type, alert, context)
-    audit.update_incident(incident_id, diagnosis_text=diagnosis_text)
+    audit.update_incident(
+        incident_id,
+        context_snapshot=final_state.get("context"),
+        diagnosis_text=final_state.get("diagnosis_text"),
+        confidence_score=final_state.get("confidence_score"),
+        computed_severity=final_state.get("severity"),
+    )
 
-    plan = build_plan(classified)
+    escalation_reason = final_state.get("escalation_reason")
+    if escalation_reason:
+        audit.update_incident(incident_id, status="escalated", escalation_reason=escalation_reason)
+        log_step(
+            incident_id, "graph.escalate", "INFO", {"reason": escalation_reason},
+            note="Diagnosis graph escalated this incident - no plan will be shown for approval",
+        )
+        return {"incident_id": incident_id, "action": "escalated"}
+
+    plan = final_state.get("remediation_plan")
     audit.update_incident(incident_id, remediation_plan=plan)
     log_step(
         incident_id, "remediation.plan_ready", "INFO", plan,
-        note="Deterministic remediation plan drafted - awaiting human approval in the UI",
+        note="Plan passed the guardrail check - awaiting human approval in the UI",
     )
 
     return {"incident_id": incident_id, "action": "created_pending_approval"}

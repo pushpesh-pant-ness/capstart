@@ -12,6 +12,7 @@
         <th>Namespace / Resource</th>
         <th>Severity</th>
         <th>Status</th>
+        <th>Elapsed</th>
       </tr>
     </thead>
     <tbody>
@@ -23,9 +24,10 @@
         <td>{{ incident.namespace }} / {{ incident.resource_name }}</td>
         <td>{{ incident.severity }}</td>
         <td><span class="badge badge-{{ incident.status }}">{{ incident.status }}</span></td>
+        <td>{{ "%.1f"|format(incident.duration_seconds) if incident.duration_seconds is not none else "-" }}s</td>
       </tr>
       {% else %}
-      <tr><td colspan="6">No active incidents. Trigger a fault from injector/ to see one appear here.</td></tr>
+      <tr><td colspan="7">No active incidents. Trigger a fault from injector/ to see one appear here.</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -40,6 +42,7 @@
         <th>Namespace / Resource</th>
         <th>Severity</th>
         <th>Status</th>
+        <th>Total time</th>
       </tr>
     </thead>
     <tbody>
@@ -51,9 +54,10 @@
         <td>{{ incident.namespace }} / {{ incident.resource_name }}</td>
         <td>{{ incident.severity }}</td>
         <td><span class="badge badge-{{ incident.status }}">{{ incident.status }}</span></td>
+        <td>{{ "%.1f"|format(incident.duration_seconds) if incident.duration_seconds is not none else "-" }}s</td>
       </tr>
       {% else %}
-      <tr><td colspan="6">Nothing resolved yet.</td></tr>
+      <tr><td colspan="7">Nothing resolved yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>

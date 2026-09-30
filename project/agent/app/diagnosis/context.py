@@ -13,6 +13,7 @@ import httpx
 
 from ..config import settings
 from ..logging_utils import log_step
+from ..observability import traceable
 from .classifier import ClassifiedAlert
 
 
@@ -43,6 +44,7 @@ def query_loki(incident_id: int | None, logql: str, limit: int = 20) -> dict[str
     return data
 
 
+@traceable(name="build_context", run_type="retriever")
 def build_context(incident_id: int, classified: ClassifiedAlert) -> dict[str, Any]:
     """Incident-type-specific PromQL/LogQL fan-out, returned as one JSON blob."""
     ns = classified.namespace

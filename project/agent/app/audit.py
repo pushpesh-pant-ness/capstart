@@ -26,6 +26,9 @@ CREATE TABLE IF NOT EXISTS incidents (
     context_snapshot TEXT,
     diagnosis_text TEXT,
     remediation_plan TEXT,
+    confidence_score REAL,
+    computed_severity TEXT,
+    escalation_reason TEXT,
     decision_by TEXT,
     decision_at TEXT,
     execution_result TEXT,
@@ -41,10 +44,24 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
+# Columns added after the original schema - guarded ALTER TABLE so an audit.db
+# created by an older version of this app (no migration framework here, it's
+# a demo) picks them up instead of failing every UPDATE with 'no such column'.
+_ADDED_COLUMNS = {
+    "confidence_score": "REAL",
+    "computed_severity": "TEXT",
+    "escalation_reason": "TEXT",
+}
+
+
 def init_db() -> None:
     Path(settings.audit_db_path).parent.mkdir(parents=True, exist_ok=True)
     with _lock, _connect() as conn:
         conn.executescript(_SCHEMA)
+        existing = {row["name"] for row in conn.execute("PRAGMA table_info(incidents)")}
+        for column, col_type in _ADDED_COLUMNS.items():
+            if column not in existing:
+                conn.execute(f"ALTER TABLE incidents ADD COLUMN {column} {col_type}")
 
 
 def create_incident(
@@ -123,3 +140,38 @@ def find_active_by_fingerprint(fingerprint: str) -> dict[str, Any] | None:
             (fingerprint,),
         ).fetchone()
         return dict(row) if row else None
+
+
+_TERMINAL_STATUSES = {"resolved", "rejected", "executed", "execution_failed"}
+
+
+def duration_seconds(incident: dict[str, Any]) -> float | None:
+    """
+    Wall-clock time from alert received to now (still-active incidents) or to
+    the last update (terminal incidents) - derived from the durable
+    received_at/updated_at columns so it survives an agent restart, unlike the
+    in-memory per-step timings in logging_utils.
+    """
+    received_at = incident.get("received_at")
+    if not received_at:
+        return None
+    end = incident.get("updated_at") if incident.get("status") in _TERMINAL_STATUSES else None
+    end_dt = datetime.fromisoformat(end) if end else datetime.now(timezone.utc)
+    start_dt = datetime.fromisoformat(received_at)
+    return (end_dt - start_dt).total_seconds()
+
+
+def find_similar_resolved(incident_type: str, exclude_id: int | None = None, limit: int = 3) -> list[dict[str, Any]]:
+    """
+    Historical retrieval for the diagnosis prompt: the most recent past
+    incidents of the same type that reached a known-good outcome, so Bedrock
+    can ground its explanation in concrete precedent instead of generalities.
+    """
+    with _lock, _connect() as conn:
+        rows = conn.execute(
+            """SELECT * FROM incidents
+               WHERE incident_type = ? AND status IN ('resolved', 'executed') AND id != ?
+               ORDER BY id DESC LIMIT ?""",
+            (incident_type, exclude_id or -1, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]

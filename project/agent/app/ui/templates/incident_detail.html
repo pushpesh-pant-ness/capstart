@@ -5,6 +5,7 @@
 <div id="incident-content" hx-get="/incident/{{ incident.id }}" hx-trigger="every 3s" hx-select="#incident-content" hx-target="#incident-content" hx-swap="outerHTML">
 <h2>Incident #{{ incident.id }} - {{ incident.incident_type }}
   <span class="badge badge-{{ incident.status }}">{{ incident.status }}</span>
+  <small>{{ "%.1f"|format(incident.duration_seconds) if incident.duration_seconds is not none else "-" }}s elapsed</small>
 </h2>
 
 <div class="card">
@@ -22,12 +23,22 @@
 </div>
 
 <div class="card">
-  <h3>3. Diagnosis (Amazon Nova via AWS Bedrock)</h3>
+  <h3>3. Diagnosis (via the diagnosis graph - RCA node)</h3>
   <p>{{ incident.diagnosis_text }}</p>
+  <p><small>
+    severity = <code>{{ incident.computed_severity or "-" }}</code> &nbsp;
+    confidence = <code>{{ "%.2f"|format(incident.confidence_score) if incident.confidence_score is not none else "-" }}</code>
+  </small></p>
 </div>
 
+{% if incident.status == "escalated" %}
 <div class="card">
-  <h3>4. Proposed remediation plan (fixed, deterministic template)</h3>
+  <h3>4. Escalated - no plan proposed</h3>
+  <p>{{ incident.escalation_reason }}</p>
+</div>
+{% else %}
+<div class="card">
+  <h3>4. Proposed remediation plan (LLM-authored, guardrail-validated)</h3>
   {% if incident.remediation_plan %}
   <p><strong>{{ incident.remediation_plan.title }}</strong></p>
   <ol>
@@ -38,6 +49,7 @@
   <p><small>action = <code>{{ incident.remediation_plan.action }}</code></small></p>
   {% endif %}
 </div>
+{% endif %}
 
 <div class="card">
   <h3>5. Human decision</h3>
@@ -49,6 +61,12 @@
   <form style="display:inline" method="post" action="/incident/{{ incident.id }}/reject">
     <input type="hidden" name="approver" value="human">
     <button class="reject" type="submit">Reject</button>
+  </form>
+  {% elif incident.status == "escalated" %}
+  <p>The diagnosis graph escalated this incident instead of proposing a plan - see reason above.
+     Investigate manually, or re-run diagnosis if this looks like a transient failure.</p>
+  <form method="post" action="/incident/{{ incident.id }}/reprocess">
+    <button class="approve" type="submit">Re-run diagnosis</button>
   </form>
   {% elif incident.status == "in_progress" %}
   <p>Approved by {{ incident.decision_by }} at {{ incident.decision_at }} - agent is retrying
@@ -75,7 +93,7 @@
   <h3>Full step-by-step timeline (exactly what the agent sent / received)</h3>
   {% for event in timeline %}
   <div class="step step-{{ event.direction }}">
-    <div><strong>{{ event.step }}</strong> &nbsp;<small>{{ event.direction }} &middot; {{ event.timestamp }}</small></div>
+    <div><strong>{{ event.step }}</strong> &nbsp;<small>{{ event.direction }} &middot; {{ event.timestamp }}{% if event.elapsed_ms is not none %} &middot; +{{ event.step_ms }}ms (total {{ event.elapsed_ms }}ms){% endif %}</small></div>
     {% if event.note %}<div><em>{{ event.note }}</em></div>{% endif %}
     {% if event.payload %}<pre>{{ event.payload }}</pre>{% endif %}
   </div>

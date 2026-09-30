@@ -46,6 +46,20 @@ spec:
               value: "true"
             - name: AUDIT_DB_PATH
               value: /data/audit.db
+            - name: DIAGNOSIS_HISTORY_EXAMPLES
+              value: "3"
+            # Default OFF: remediation action always comes from the deterministic
+            # allow-list, the LLM only authors the plan's narrative. See
+            # app/graph/nodes/plan.py and app/config.py.
+            - name: LLM_AUTHORS_ACTION
+              value: "false"
+            # Optional LangSmith tracing (see app/observability.py) - off by default.
+            # To enable: set to "true" and add LANGSMITH_API_KEY=... to your .env
+            # (it flows through the same aws-bedrock-credentials secret below).
+            - name: LANGSMITH_ENABLED
+              value: "false"
+            - name: LANGSMITH_PROJECT
+              value: capstart-remediation-agent
           envFrom:
             - secretRef:
                 name: aws-bedrock-credentials
