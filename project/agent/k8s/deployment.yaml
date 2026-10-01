@@ -68,11 +68,11 @@ spec:
               value: "true"
             - name: AGENTIC_REFLECTION
               value: "true"
-            # Optional LangSmith tracing (see app/observability.py) - off by default.
-            # To enable: set to "true" and add LANGSMITH_API_KEY=... to your .env
-            # (it flows through the same aws-bedrock-credentials secret below).
+            # Optional LangSmith tracing (see app/observability.py) - on. Requires
+            # LANGSMITH_API_KEY=... in your .env (it flows through the same
+            # aws-bedrock-credentials secret below).
             - name: LANGSMITH_ENABLED
-              value: "false"
+              value: "true"
             - name: LANGSMITH_PROJECT
               value: capstart-remediation-agent
           envFrom:

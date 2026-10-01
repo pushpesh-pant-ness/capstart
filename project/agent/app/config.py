@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     # Optional LangSmith tracing of the diagnosis pipeline (context gathering +
     # Bedrock calls) - off by default. Also requires LANGSMITH_API_KEY to be set
     # (langsmith reads that directly from the environment). See app/observability.py.
-    langsmith_enabled: bool = False
+    langsmith_enabled: bool = True
     langsmith_project: str = "capstart-remediation-agent"
 
     # How many past resolved/executed incidents of the same type to retrieve

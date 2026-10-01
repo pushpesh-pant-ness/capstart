@@ -10,6 +10,7 @@ import boto3
 
 from ..config import settings
 from ..logging_utils import log_step
+from ..observability import traceable
 
 _client = None
 
@@ -25,6 +26,7 @@ def _get_client():
     return _client
 
 
+@traceable(name="llm.analyze", run_type="llm")
 def analyze(incident_id: int, step: str, system_prompt: str, user_prompt: str, max_tokens: int = 400) -> str:
     if not settings.bedrock_enabled:
         raise LLMUnavailableError("Bedrock disabled via config")
