@@ -71,7 +71,11 @@
     <li>{{ step }}</li>
     {% endfor %}
   </ol>
-  <p><small>action = <code>{{ incident.remediation_plan.action }}</code></small></p>
+  <p><small>action = <code>{{ incident.remediation_plan.action }}</code>
+    {% if incident.remediation_plan.selected_via == "tool_call" %}&middot; chosen by the LLM as a tool call
+    {% elif incident.remediation_plan.selected_via == "llm_text" %}&middot; chosen by the LLM (text)
+    {% elif incident.remediation_plan.selected_via == "default" %}&middot; deterministic default tool
+    {% endif %}</small></p>
   {% endif %}
 </div>
 {% endif %}

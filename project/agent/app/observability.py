@@ -34,10 +34,26 @@ if settings.langsmith_enabled:
     try:
         from langsmith import traceable as _langsmith_traceable
 
+        # pydantic loads .env into Settings, NOT into os.environ - but the
+        # langsmith SDK and LangChain auto-tracing read these straight from
+        # os.environ, so bridge them across (setdefault keeps any real env var,
+        # e.g. the in-cluster secret, authoritative).
         os.environ.setdefault("LANGSMITH_TRACING", "true")
+        os.environ.setdefault("LANGSMITH_ENDPOINT", settings.langsmith_endpoint)
         os.environ.setdefault("LANGSMITH_PROJECT", settings.langsmith_project)
+        if settings.langsmith_api_key:
+            os.environ.setdefault("LANGSMITH_API_KEY", settings.langsmith_api_key)
         traceable = _langsmith_traceable
-        logger.info(f"=== LangSmith tracing enabled (project={settings.langsmith_project}) ===")
+
+        if os.environ.get("LANGSMITH_API_KEY"):
+            logger.info(
+                f"=== LangSmith tracing enabled (project={os.environ.get('LANGSMITH_PROJECT')}) ==="
+            )
+        else:
+            logger.warning(
+                "LANGSMITH_ENABLED=true but no LANGSMITH_API_KEY found (set it in .env) - "
+                "traces will not be sent"
+            )
     except ImportError:
         logger.warning(
             "LANGSMITH_ENABLED=true but the 'langsmith' package is not installed - tracing disabled"

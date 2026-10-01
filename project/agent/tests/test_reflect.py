@@ -26,9 +26,9 @@ def _reflective(fn):
 
 class ReflectNodeTests(unittest.IsolatedAsyncioTestCase):
     async def test_disabled_is_noop_and_routes_to_guardrail(self):
-        self.assertFalse(settings.agentic_reflection)
-        self.assertIsNone(await rfl.reflect({"incident_id": 1}))
-        self.assertEqual(rfl.route_after_reflect({}), "guardrail")
+        with patch.object(settings, "agentic_reflection", False):
+            self.assertIsNone(await rfl.reflect({"incident_id": 1}))
+            self.assertEqual(rfl.route_after_reflect({}), "guardrail")
 
     @_reflective
     async def test_ok_verdict_routes_to_guardrail(self):
