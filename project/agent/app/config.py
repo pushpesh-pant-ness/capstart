@@ -50,14 +50,14 @@ class Settings(BaseSettings):
     #   agentic_supervisor    - supervisor routes via an LLM decision instead of
     #     the P4+similarity rule (deterministic guards still backstop it)
     #   agent_max_steps       - hard cap on the agent's tool calls / loop hops
-    agentic_investigation: bool = False
-    agentic_supervisor: bool = False
+    agentic_investigation: bool = True
+    agentic_supervisor: bool = True
     agent_max_steps: int = 6
 
     # agentic_reflection - a self-critique node re-checks the drafted plan's
     # coherence/evidence before the guardrail, and can loop back to investigate
     # (bounded by agent_max_steps). Default OFF.
-    agentic_reflection: bool = False
+    agentic_reflection: bool = True
 
     # Default OFF: the remediation action always comes from the deterministic
     # allow-list (remediation/templates.py), regardless of what the LLM says -
@@ -65,7 +65,7 @@ class Settings(BaseSettings):
     # LLM's own action choice (still rejected by the guardrail node if it
     # isn't the one allow-listed action for the incident_type - see
     # app/graph/guardrail.py). See app/graph/nodes/plan.py.
-    llm_authors_action: bool = False
+    llm_authors_action: bool = True
 
     # PostgreSQL audit store (see agent/k8s/postgres.yaml) - durable across
     # agent pod restarts/redeploys, unlike the old SQLite-on-emptyDir file.
