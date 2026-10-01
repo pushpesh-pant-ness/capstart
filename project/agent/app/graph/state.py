@@ -18,6 +18,12 @@ class IncidentState(TypedDict, total=False):
     # Investigate output
     context: dict[str, Any]
 
+    # Agentic investigation (Phase 1): the ordered list of read-only tool calls
+    # the investigate agent chose, plus their trimmed results - surfaced in the
+    # UI/audit so the agent's reasoning path is visible. Empty when the
+    # deterministic (non-agentic) investigate path ran.
+    evidence_trail: list[dict[str, Any]]
+
     # Severity re-assessment (independent of the static alert_severity label)
     severity: str  # P1..P4
     severity_rationale: str
@@ -25,6 +31,17 @@ class IncidentState(TypedDict, total=False):
     # Historical retrieval - candidates already fetched by the caller
     # (webhook.py via audit.find_similar_resolved) and placed on the state.
     similar_incidents: list[dict[str, Any]]
+
+    # Agentic supervisor (Phase 2): the LLM router's decision
+    # (gather_more|auto_plan|full_rca|escalate) and its rationale, plus a hop
+    # counter that bounds the gather_more -> investigate loop.
+    router_decision: str
+    router_rationale: str
+    supervisor_hops: int
+
+    # Agentic reflection (Phase 3): the self-critique verdicts recorded before
+    # the guardrail, newest appended last.
+    reflections: list[str]
 
     # RCA / diagnosis
     diagnosis_text: str

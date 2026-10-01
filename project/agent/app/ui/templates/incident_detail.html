@@ -22,6 +22,31 @@
   <pre>{{ incident.context_snapshot | tojson(indent=2) }}</pre>
 </div>
 
+{% if incident.agent_evidence or incident.router_decision or incident.reflections %}
+<div class="card">
+  <h3>2b. Agentic reasoning trace</h3>
+  {% if incident.router_decision %}
+  <p><strong>Supervisor decision:</strong> <code>{{ incident.router_decision }}</code>
+     {% if incident.router_rationale %}&mdash; {{ incident.router_rationale }}{% endif %}</p>
+  {% endif %}
+  {% if incident.agent_evidence %}
+  <p><strong>Investigation tool calls (agent chose these):</strong></p>
+  <ol>
+    {% for step in incident.agent_evidence %}
+    <li><code>{{ step.tool }}</code>{% if step.args %} {{ step.args | tojson }}{% endif %}
+      {% if step.result %}<pre>{{ step.result }}</pre>{% endif %}</li>
+    {% endfor %}
+  </ol>
+  {% endif %}
+  {% if incident.reflections %}
+  <p><strong>Self-critique:</strong></p>
+  <ul>
+    {% for r in incident.reflections %}<li>{{ r }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+</div>
+{% endif %}
+
 <div class="card">
   <h3>3. Diagnosis (via the diagnosis graph - RCA node)</h3>
   <p>{{ incident.diagnosis_text }}</p>

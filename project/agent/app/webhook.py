@@ -13,7 +13,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 
 from . import audit
-from .diagnosis.classifier import classify_alert
+from .diagnosis.classifier import ClassifiedAlert, classify_alert
 from .graph import graph
 from .graph.state import IncidentState
 from .logging_utils import log_step
@@ -65,6 +65,18 @@ async def _process_alert(alert: dict[str, Any]) -> dict[str, Any]:
         return {"incident_id": existing["id"], "action": "duplicate_ignored"}
 
     classified = classify_alert(alert)
+    return await run_incident_pipeline(fingerprint=fingerprint, classified=classified, raw_alert=alert)
+
+
+@traceable(name="run_incident_pipeline", run_type="chain")
+async def run_incident_pipeline(
+    *, fingerprint: str, classified: ClassifiedAlert, raw_alert: dict[str, Any]
+) -> dict[str, Any]:
+    """Shared path for every incident source (Alertmanager metric alerts and
+    the Loki log watcher, see app/log_watcher.py): persist the incident, run
+    the diagnosis/planning graph, and land it as pending_approval or escalated.
+    The graph never executes anything - remediation only runs after a human
+    approves in the UI (see ui/routes.py, executor.py)."""
     incident_id = audit.create_incident(
         fingerprint=fingerprint,
         alertname=classified.alertname,
@@ -72,7 +84,7 @@ async def _process_alert(alert: dict[str, Any]) -> dict[str, Any]:
         namespace=classified.namespace,
         resource_name=classified.resource_name,
         severity=classified.severity,
-        raw_alert=alert,
+        raw_alert=raw_alert,
     )
     log_step(
         incident_id, "webhook.classify", "INFO", classified.__dict__,
@@ -87,7 +99,7 @@ async def _process_alert(alert: dict[str, Any]) -> dict[str, Any]:
         "alert_severity": classified.severity,
         "labels": classified.labels,
         "annotations": classified.annotations,
-        "raw_alert": alert,
+        "raw_alert": raw_alert,
     }
     final_state = await graph.ainvoke(initial_state)
 
@@ -97,6 +109,10 @@ async def _process_alert(alert: dict[str, Any]) -> dict[str, Any]:
         diagnosis_text=final_state.get("diagnosis_text"),
         confidence_score=final_state.get("confidence_score"),
         computed_severity=final_state.get("severity"),
+        agent_evidence=final_state.get("evidence_trail") or [],
+        router_decision=final_state.get("router_decision"),
+        router_rationale=final_state.get("router_rationale"),
+        reflections=final_state.get("reflections") or [],
     )
 
     escalation_reason = final_state.get("escalation_reason")

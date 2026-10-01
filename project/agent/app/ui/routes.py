@@ -41,7 +41,7 @@ def _parse_json_field(value: Any) -> Any:
 
 def _prepare(incident: dict[str, Any]) -> dict[str, Any]:
     incident = dict(incident)
-    for field in ("raw_alert", "context_snapshot", "remediation_plan", "execution_result"):
+    for field in ("raw_alert", "context_snapshot", "remediation_plan", "execution_result", "agent_evidence", "reflections"):
         incident[field] = _parse_json_field(incident.get(field))
     incident["duration_seconds"] = audit.duration_seconds(incident)
     return incident

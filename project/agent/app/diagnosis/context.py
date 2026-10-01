@@ -30,9 +30,9 @@ def query_prometheus(incident_id: int | None, promql: str) -> dict[str, Any]:
     return data
 
 
-def query_loki(incident_id: int | None, logql: str, limit: int = 20) -> dict[str, Any]:
+def query_loki(incident_id: int | None, logql: str, limit: int = 20, since: str = "10m") -> dict[str, Any]:
     url = f"{settings.loki_url}/loki/api/v1/query_range"
-    params = {"query": logql, "limit": limit, "since": "10m"}
+    params = {"query": logql, "limit": limit, "since": since}
     log_step(incident_id, "loki.query", "SEND", {"url": url, **params})
     try:
         resp = httpx.get(url, params=params, timeout=settings.http_timeout_seconds)

@@ -27,6 +27,38 @@ class Settings(BaseSettings):
     # as grounding examples for the Bedrock diagnosis prompt (0 disables it).
     diagnosis_history_examples: int = 3
 
+    # Log-driven trigger: in addition to Prometheus/Alertmanager metric alerts,
+    # watch Loki for error log lines and open incidents from them. Off by
+    # default so metric-only deployments are unchanged. See app/log_watcher.py.
+    log_trigger_enabled: bool = False
+    log_watch_namespaces: str = "demo"  # comma-separated list of namespaces to watch
+    log_error_pattern: str = r"(?i)panic|exception|traceback|fatal|oomkilled|crashloopbackoff|error"
+    log_poll_interval_seconds: float = 30.0
+    log_lookback: str = "2m"  # Loki `since` window scanned each poll
+
+    # Agentic log classification: when the deterministic keyword pass can't
+    # place an error log line, ask the LLM to classify it into a known
+    # incident_type with a confidence. Below the threshold it stays 'unknown'
+    # and the graph escalates rather than guessing an action. Off by default.
+    agentic_log_classification: bool = False
+    log_classification_min_confidence: float = 0.5
+
+    # Agency flags for the diagnosis graph (see app/graph). All default OFF so
+    # the deterministic pipeline is unchanged until explicitly enabled.
+    #   agentic_investigation - investigate node becomes a tool-calling ReAct
+    #     loop that decides which read-only diagnostics to run (app/graph/tools.py)
+    #   agentic_supervisor    - supervisor routes via an LLM decision instead of
+    #     the P4+similarity rule (deterministic guards still backstop it)
+    #   agent_max_steps       - hard cap on the agent's tool calls / loop hops
+    agentic_investigation: bool = False
+    agentic_supervisor: bool = False
+    agent_max_steps: int = 6
+
+    # agentic_reflection - a self-critique node re-checks the drafted plan's
+    # coherence/evidence before the guardrail, and can loop back to investigate
+    # (bounded by agent_max_steps). Default OFF.
+    agentic_reflection: bool = False
+
     # Default OFF: the remediation action always comes from the deterministic
     # allow-list (remediation/templates.py), regardless of what the LLM says -
     # only its title/steps narrative is used. Set true to instead trust the

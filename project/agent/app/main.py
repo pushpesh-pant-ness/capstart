@@ -6,6 +6,7 @@ import logging
 from fastapi import FastAPI
 
 from . import audit
+from . import log_watcher
 from .logging_utils import logger
 from .ui.routes import router as ui_router
 from .webhook import router as webhook_router
@@ -14,10 +15,16 @@ app = FastAPI(title="Kubernetes Incident Remediation Agent")
 
 
 @app.on_event("startup")
-def on_startup() -> None:
+async def on_startup() -> None:
     audit.init_db()
     logging.getLogger("uvicorn.access").propagate = False
+    log_watcher.start()
     logger.info("=== Remediation agent started: audit DB ready, waiting for Alertmanager webhooks ===")
+
+
+@app.on_event("shutdown")
+async def on_shutdown() -> None:
+    await log_watcher.stop()
 
 
 app.include_router(webhook_router)

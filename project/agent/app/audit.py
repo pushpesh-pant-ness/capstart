@@ -64,6 +64,10 @@ _ADDED_COLUMNS = {
     "confidence_score": "REAL",
     "computed_severity": "TEXT",
     "escalation_reason": "TEXT",
+    "agent_evidence": "TEXT",
+    "router_decision": "TEXT",
+    "router_rationale": "TEXT",
+    "reflections": "TEXT",
 }
 
 

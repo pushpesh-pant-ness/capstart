@@ -14,7 +14,10 @@ param(
     [switch]$SkipImageBuild
 )
 
-$ErrorActionPreference = "Stop"
+# Continue (not Stop): native tools like kind/docker write progress to stderr,
+# which Windows PowerShell 5.1 would otherwise turn into a terminating error.
+# Real failures are still caught by Invoke-Native's $LASTEXITCODE check below.
+$ErrorActionPreference = "Continue"
 Set-Location (Join-Path $PSScriptRoot "..")
 
 function Invoke-Native {
