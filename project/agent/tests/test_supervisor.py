@@ -71,10 +71,10 @@ class SupervisorRoutingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sup.route_after_supervisor({"router_decision": "escalate"}), "escalate")
 
     async def test_deterministic_mode_supervisor_is_noop(self):
-        # agentic flags off (default): node returns None, routing by the old rule.
-        self.assertFalse(settings.agentic_supervisor)
-        self.assertIsNone(await sup.supervisor({"incident_id": 1, "severity": "P2"}))
-        self.assertEqual(sup.route_after_supervisor({"severity": "P2", "similar_incidents": []}), "rca")
+        # With the agentic flag off: node returns None, routing by the old rule.
+        with patch.object(settings, "agentic_supervisor", False):
+            self.assertIsNone(await sup.supervisor({"incident_id": 1, "severity": "P2"}))
+            self.assertEqual(sup.route_after_supervisor({"severity": "P2", "similar_incidents": []}), "rca")
 
 
 if __name__ == "__main__":

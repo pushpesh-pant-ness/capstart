@@ -1,9 +1,24 @@
 """Central configuration for the remediation agent, all overridable via env vars."""
+from pathlib import Path
+
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Canonical .env location: project/.env, resolved from this file so it works no
+# matter what CWD the agent is launched from. Fall back to a .env next to the
+# process CWD too. In-cluster this file usually doesn't exist (env comes from the
+# Kubernetes secret), and a missing path is a harmless no-op.
+_PROJECT_ENV = Path(__file__).resolve().parents[2] / ".env"
+
+# Load .env into os.environ at import time so libraries that read os.environ
+# directly (langsmith SDK, LangChain auto-tracing) see the same values pydantic
+# does - pydantic-settings only loads .env into the Settings object, not os.environ.
+load_dotenv(_PROJECT_ENV)
+load_dotenv()  # also honor a .env in the current working dir (e.g. agent/.env)
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=(str(_PROJECT_ENV), ".env"), extra="ignore")
 
     # In-cluster DNS names when the agent runs as a pod (see agent/k8s/deployment.yaml).
     # Point these at localhost:9090 / :3100 instead if you `kubectl port-forward`
@@ -18,10 +33,14 @@ class Settings(BaseSettings):
     bedrock_enabled: bool = True
 
     # Optional LangSmith tracing of the diagnosis pipeline (context gathering +
-    # Bedrock calls) - off by default. Also requires LANGSMITH_API_KEY to be set
-    # (langsmith reads that directly from the environment). See app/observability.py.
+    # Bedrock calls). Requires langsmith_api_key. observability.py bridges these
+    # into os.environ so the langsmith SDK / LangChain auto-tracing can read them
+    # even when they only live in .env (pydantic loads .env into Settings, not
+    # into os.environ). See app/observability.py.
     langsmith_enabled: bool = True
     langsmith_project: str = "capstart-remediation-agent"
+    langsmith_api_key: str = ""
+    langsmith_endpoint: str = "https://api.smith.langchain.com"
 
     # How many past resolved/executed incidents of the same type to retrieve
     # as grounding examples for the Bedrock diagnosis prompt (0 disables it).

@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 os.environ.setdefault("KUBE_IN_CLUSTER", "false")
 
 from app import bedrock_client
 from app.config import settings
 from app.graph import guardrail
+from app.graph import llm as graph_llm
 from app.graph.llm import LLMUnavailableError
 from app.graph.nodes.guardrail import route_after_guardrail
 from app.graph.nodes.plan import plan
@@ -54,6 +55,12 @@ class GuardrailTests(unittest.TestCase):
 
     def test_accepts_valid_plan(self):
         plan_body = {"title": "t", "steps": ["s"], "action": "delete_pod", "target": {"namespace": "demo", "name": "x"}}
+        reason = guardrail.check_plan(plan_body, incident_type="crashloop", expected_namespace="demo", expected_resource_name="x")
+        self.assertIsNone(reason)
+
+    def test_accepts_second_allow_listed_action_for_type(self):
+        # crashloop now allows delete_pod OR rollout_restart_deployment.
+        plan_body = {"title": "t", "steps": ["s"], "action": "rollout_restart_deployment", "target": {"namespace": "demo", "name": "x"}}
         reason = guardrail.check_plan(plan_body, incident_type="crashloop", expected_namespace="demo", expected_resource_name="x")
         self.assertIsNone(reason)
 
@@ -104,26 +111,77 @@ class PlanNodeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(remediation_plan["target"], {"namespace": "demo", "name": "demo-web-abc"})
 
     async def test_llm_authors_action_mode_accepts_matching_action(self):
-        llm_json = '{"action": "delete_pod", "title": "Custom title", "steps": ["step one"]}'
-        with patch.object(settings, "llm_authors_action", True), patch("app.graph.nodes.plan.llm.analyze", return_value=llm_json):
+        # Primary path: the LLM selects the tool via a real tool call.
+        with patch.object(settings, "llm_authors_action", True), patch(
+            "app.graph.nodes.plan.llm.select_tool",
+            return_value=("delete_pod", {"title": "Custom title", "steps": ["step one"]}),
+        ):
             result = await plan(dict(self.base_state))
         self.assertEqual(result["remediation_plan"]["action"], "delete_pod")
         self.assertEqual(result["remediation_plan"]["title"], "Custom title")
+        self.assertEqual(result["remediation_plan"]["selected_via"], "tool_call")
 
-    async def test_llm_authors_action_mode_rejects_mismatched_action(self):
-        llm_json = '{"action": "recover_node", "title": "Custom title", "steps": ["step one"]}'
-        with patch.object(settings, "llm_authors_action", True), patch("app.graph.nodes.plan.llm.analyze", return_value=llm_json):
+    async def test_llm_authors_action_mode_accepts_alternate_allow_listed_tool(self):
+        # The model may call any tool on the incident type's allow-list, not just
+        # the default - here the second crashloop candidate.
+        with patch.object(settings, "llm_authors_action", True), patch(
+            "app.graph.nodes.plan.llm.select_tool",
+            return_value=("rollout_restart_deployment", {"title": "Restart rollout", "steps": ["step one"]}),
+        ):
+            result = await plan(dict(self.base_state))
+        self.assertEqual(result["remediation_plan"]["action"], "rollout_restart_deployment")
+        self.assertEqual(result["remediation_plan"]["title"], "Restart rollout")
+        self.assertEqual(result["remediation_plan"]["selected_via"], "tool_call")
+
+    async def test_llm_authors_action_mode_rejects_mismatched_tool_call(self):
+        # The model calls a tool that isn't allow-listed for this type -> the
+        # tool-call path is discarded and we fall back; with the text path also
+        # unavailable, it lands on the deterministic template.
+        with patch.object(settings, "llm_authors_action", True), patch(
+            "app.graph.nodes.plan.llm.select_tool",
+            return_value=("recover_node", {"title": "Custom title", "steps": ["step one"]}),
+        ), patch("app.graph.nodes.plan.llm.analyze", side_effect=LLMUnavailableError("no text fallback")):
             result = await plan(dict(self.base_state))
         remediation_plan = result["remediation_plan"]
-        # Falls back to the deterministic template entirely - never a
-        # mismatched action paired with an LLM-authored narrative.
         self.assertEqual(remediation_plan["action"], "delete_pod")
         self.assertNotEqual(remediation_plan["title"], "Custom title")
 
     async def test_falls_back_to_deterministic_plan_when_llm_unavailable(self):
-        with patch("app.graph.nodes.plan.llm.analyze", side_effect=LLMUnavailableError("boom")):
+        with patch.object(settings, "llm_authors_action", True), patch(
+            "app.graph.nodes.plan.llm.select_tool", side_effect=LLMUnavailableError("boom")
+        ), patch("app.graph.nodes.plan.llm.analyze", side_effect=LLMUnavailableError("boom")):
             result = await plan(dict(self.base_state))
         self.assertEqual(result["remediation_plan"]["action"], "delete_pod")
+        self.assertEqual(result["remediation_plan"]["selected_via"], "default")
+
+
+class SelectToolTests(unittest.TestCase):
+    def _fake_client(self, response):
+        client = Mock()
+        client.converse.return_value = response
+        return client
+
+    def test_returns_tool_name_and_input_from_tool_use_block(self):
+        response = {
+            "output": {"message": {"content": [
+                {"text": "I'll fix this."},
+                {"toolUse": {"toolUseId": "t1", "name": "delete_pod", "input": {"title": "T", "steps": ["s"]}}},
+            ]}}
+        }
+        with patch.object(settings, "bedrock_enabled", True), patch(
+            "app.graph.llm._get_client", return_value=self._fake_client(response)
+        ):
+            name, tool_input = graph_llm.select_tool(1, "plan.tool_call", "sys", "user", [{"toolSpec": {"name": "delete_pod"}}])
+        self.assertEqual(name, "delete_pod")
+        self.assertEqual(tool_input, {"title": "T", "steps": ["s"]})
+
+    def test_raises_when_model_answers_in_text_only(self):
+        response = {"output": {"message": {"content": [{"text": "no tool call here"}]}}}
+        with patch.object(settings, "bedrock_enabled", True), patch(
+            "app.graph.llm._get_client", return_value=self._fake_client(response)
+        ):
+            with self.assertRaises(LLMUnavailableError):
+                graph_llm.select_tool(1, "plan.tool_call", "sys", "user", [{"toolSpec": {"name": "delete_pod"}}])
 
 
 if __name__ == "__main__":

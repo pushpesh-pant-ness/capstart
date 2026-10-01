@@ -114,6 +114,34 @@ def _deployment_name_from_pod(pod_name: str) -> str:
     return parts[0] if len(parts) == 3 else pod_name
 
 
+def _known_good_revert(dep: Any) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    """Build the container patch + annotations-to-clear that restore whatever
+    last-known-good command and/or image the injector stashed on the deployment.
+    Shared by both restart-style tools (delete_pod / rollout_restart_deployment)
+    so either tool the LLM picks fully reverts the fault, not just half of it.
+    Returns (None, {}) when nothing was stashed."""
+    annotations = dep.metadata.annotations or {}
+    container: dict[str, Any] = {"name": dep.spec.template.spec.containers[0].name}
+    clear: dict[str, Any] = {}
+
+    original_command = annotations.get(ORIGINAL_COMMAND_ANNOTATION)
+    if original_command:
+        spec = json.loads(original_command)
+        container["name"] = spec["name"]
+        container["command"] = spec.get("command")
+        container["args"] = spec.get("args")
+        clear[ORIGINAL_COMMAND_ANNOTATION] = None
+
+    original_image = annotations.get(ORIGINAL_IMAGE_ANNOTATION)
+    if original_image:
+        container["image"] = original_image
+        clear[ORIGINAL_IMAGE_ANNOTATION] = None
+
+    if not clear:
+        return None, {}
+    return container, clear
+
+
 def _delete_pod(incident_id: int, namespace: str, pod_name: str) -> dict[str, Any]:
     apps = _apps_v1()
     core = _core_v1()
@@ -122,32 +150,18 @@ def _delete_pod(incident_id: int, namespace: str, pod_name: str) -> dict[str, An
 
     try:
         dep = apps.read_namespaced_deployment(deployment_name, namespace)
-        annotations = dep.metadata.annotations or {}
-        original = annotations.get(ORIGINAL_COMMAND_ANNOTATION)
-        if original:
-            original_spec = json.loads(original)
+        container, clear = _known_good_revert(dep)
+        if container is not None:
             patch = {
-                "spec": {
-                    "template": {
-                        "spec": {
-                            "containers": [
-                                {
-                                    "name": original_spec["name"],
-                                    "command": original_spec.get("command"),
-                                    "args": original_spec.get("args"),
-                                }
-                            ]
-                        }
-                    }
-                },
-                "metadata": {"annotations": {ORIGINAL_COMMAND_ANNOTATION: None}},
+                "spec": {"template": {"spec": {"containers": [container]}}},
+                "metadata": {"annotations": clear},
             }
             log_step(
                 incident_id,
                 "k8s.patch_deployment",
                 "SEND",
                 {"namespace": namespace, "deployment": deployment_name, "patch": patch},
-                note="Reverting container command/args to last-known-good config",
+                note="Reverting container command/image to last-known-good config",
             )
             apps.patch_namespaced_deployment(deployment_name, namespace, patch)
             log_step(incident_id, "k8s.patch_deployment", "RECV", {"status": "reverted"})
@@ -315,11 +329,12 @@ def _rollout_restart_deployment(incident_id: int, namespace: str, deployment_nam
 
     dep = apps.read_namespaced_deployment(deployment_name, namespace)
     annotations = dep.metadata.annotations or {}
-    original_image = annotations.get(ORIGINAL_IMAGE_ANNOTATION)
+    container, clear = _known_good_revert(dep)
 
-    if not original_image and annotations.get(RESTART_TRIGGERED_ANNOTATION) == "true":
-        # Already triggered on an earlier attempt - re-patching every poll interval would
-        # restart the rollout before it ever finishes, so just let it converge and keep polling.
+    if container is None and annotations.get(RESTART_TRIGGERED_ANNOTATION) == "true":
+        # Already triggered on an earlier attempt and nothing left to restore -
+        # re-patching every poll would restart the rollout before it ever
+        # finishes, so just let it converge and keep polling.
         result["rollout_restart_triggered"] = False
         return result
 
@@ -333,20 +348,18 @@ def _rollout_restart_deployment(incident_id: int, namespace: str, deployment_nam
                 }
             }
         },
-        "metadata": {"annotations": {RESTART_TRIGGERED_ANNOTATION: "true"}},
+        "metadata": {"annotations": {RESTART_TRIGGERED_ANNOTATION: "true", **clear}},
     }
-    if original_image:
-        container_name = dep.spec.template.spec.containers[0].name
-        patch["spec"]["template"]["spec"] = {"containers": [{"name": container_name, "image": original_image}]}
-        patch["metadata"]["annotations"][ORIGINAL_IMAGE_ANNOTATION] = None
-        result["image_restored_to"] = original_image
+    if container is not None:
+        patch["spec"]["template"]["spec"] = {"containers": [container]}
+        result["known_good_restored"] = True
 
     log_step(
         incident_id,
         "k8s.patch_deployment",
         "SEND",
         {"namespace": namespace, "deployment": deployment_name, "patch": patch},
-        note="Restoring last-known-good image (if recorded) and triggering rollout restart",
+        note="Restoring last-known-good command/image (if recorded) and triggering rollout restart",
     )
     apps.patch_namespaced_deployment(deployment_name, namespace, patch)
     log_step(incident_id, "k8s.patch_deployment", "RECV", {"status": "patched"})
