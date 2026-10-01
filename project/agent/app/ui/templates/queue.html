@@ -2,64 +2,94 @@
 {% block title %}Incident Queue{% endblock %}
 {% block content %}
 <div id="queue-content" hx-get="/" hx-trigger="every 4s" hx-select="#queue-content" hx-target="#queue-content" hx-swap="outerHTML">
-  <h2>Active Incidents <small>({{ active_incidents|length }})</small></h2>
-  <table>
-    <thead>
-      <tr>
-        <th>ID</th>
-        <th>Received</th>
-        <th>Incident Type</th>
-        <th>Namespace / Resource</th>
-        <th>Severity</th>
-        <th>Status</th>
-        <th>Elapsed</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for incident in active_incidents %}
-      <tr onclick="window.location='/incident/{{ incident.id }}'" style="cursor:pointer">
-        <td>#{{ incident.id }}</td>
-        <td>{{ incident.received_at }}</td>
-        <td>{{ incident.incident_type }}</td>
-        <td>{{ incident.namespace }} / {{ incident.resource_name }}</td>
-        <td>{{ incident.severity }}</td>
-        <td><span class="badge badge-{{ incident.status }}">{{ incident.status }}</span></td>
-        <td>{{ "%.1f"|format(incident.duration_seconds) if incident.duration_seconds is not none else "-" }}s</td>
-      </tr>
-      {% else %}
-      <tr><td colspan="7">No active incidents. Trigger a fault from injector/ to see one appear here.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  {% set pending_count = active_incidents | selectattr("status", "equalto", "pending") | list | length %}
+  {% set resolved_count = resolved_incidents | selectattr("status", "equalto", "resolved") | list | length %}
+  <div class="page-head">
+    <h1>Incident Queue</h1>
+    <span class="sub">Live view — refreshes automatically every 4 seconds</span>
+  </div>
 
-  <h2>Resolved / Handled Incidents <small>({{ resolved_incidents|length }})</small></h2>
-  <table>
-    <thead>
-      <tr>
-        <th>ID</th>
-        <th>Received</th>
-        <th>Incident Type</th>
-        <th>Namespace / Resource</th>
-        <th>Severity</th>
-        <th>Status</th>
-        <th>Total time</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for incident in resolved_incidents %}
-      <tr onclick="window.location='/incident/{{ incident.id }}'" style="cursor:pointer">
-        <td>#{{ incident.id }}</td>
-        <td>{{ incident.received_at }}</td>
-        <td>{{ incident.incident_type }}</td>
-        <td>{{ incident.namespace }} / {{ incident.resource_name }}</td>
-        <td>{{ incident.severity }}</td>
-        <td><span class="badge badge-{{ incident.status }}">{{ incident.status }}</span></td>
-        <td>{{ "%.1f"|format(incident.duration_seconds) if incident.duration_seconds is not none else "-" }}s</td>
-      </tr>
-      {% else %}
-      <tr><td colspan="7">Nothing resolved yet.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <div class="stat-grid">
+    <div class="stat">
+      <span class="stat-label">Active</span>
+      <span class="stat-value accent">{{ active_incidents | length }}</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Awaiting approval</span>
+      <span class="stat-value warn">{{ pending_count }}</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Resolved</span>
+      <span class="stat-value ok">{{ resolved_count }}</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Total handled</span>
+      <span class="stat-value">{{ resolved_incidents | length }}</span>
+    </div>
+  </div>
+
+  <div class="section-title">Active Incidents <span class="count-pill">{{ active_incidents|length }}</span></div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Received</th>
+          <th>Incident Type</th>
+          <th>Namespace / Resource</th>
+          <th>Severity</th>
+          <th>Status</th>
+          <th>Elapsed</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for incident in active_incidents %}
+        <tr onclick="window.location='/incident/{{ incident.id }}'">
+          <td><span class="id-cell">#{{ incident.id }}</span></td>
+          <td class="muted">{{ incident.received_at }}</td>
+          <td>{{ incident.incident_type }}</td>
+          <td><span class="resource">{{ incident.namespace }} / {{ incident.resource_name }}</span></td>
+          <td>{{ incident.severity }}</td>
+          <td><span class="badge badge-{{ incident.status }}">{{ incident.status }}</span></td>
+          <td class="muted">{{ "%.1f"|format(incident.duration_seconds) if incident.duration_seconds is not none else "-" }}s</td>
+        </tr>
+        {% else %}
+        <tr class="empty-row"><td colspan="7">No active incidents. Trigger a fault from injector/ to see one appear here.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="section-title">Resolved / Handled Incidents <span class="count-pill">{{ resolved_incidents|length }}</span></div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Received</th>
+          <th>Incident Type</th>
+          <th>Namespace / Resource</th>
+          <th>Severity</th>
+          <th>Status</th>
+          <th>Total time</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for incident in resolved_incidents %}
+        <tr onclick="window.location='/incident/{{ incident.id }}'">
+          <td><span class="id-cell">#{{ incident.id }}</span></td>
+          <td class="muted">{{ incident.received_at }}</td>
+          <td>{{ incident.incident_type }}</td>
+          <td><span class="resource">{{ incident.namespace }} / {{ incident.resource_name }}</span></td>
+          <td>{{ incident.severity }}</td>
+          <td><span class="badge badge-{{ incident.status }}">{{ incident.status }}</span></td>
+          <td class="muted">{{ "%.1f"|format(incident.duration_seconds) if incident.duration_seconds is not none else "-" }}s</td>
+        </tr>
+        {% else %}
+        <tr class="empty-row"><td colspan="7">Nothing resolved yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 {% endblock %}

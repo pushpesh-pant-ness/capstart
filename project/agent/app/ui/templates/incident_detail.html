@@ -1,37 +1,43 @@
 {% extends "base.html" %}
 {% block title %}Incident #{{ incident.id }}{% endblock %}
 {% block content %}
-<a class="back" href="/">&larr; back to queue</a>
+<a class="back" href="/">
+  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+  Back to queue
+</a>
 <div id="incident-content" hx-get="/incident/{{ incident.id }}" hx-trigger="every 3s" hx-select="#incident-content" hx-target="#incident-content" hx-swap="outerHTML">
-<h2>Incident #{{ incident.id }} - {{ incident.incident_type }}
+<div class="page-head">
+  <h1>Incident #{{ incident.id }}</h1>
   <span class="badge badge-{{ incident.status }}">{{ incident.status }}</span>
-  <small>{{ "%.1f"|format(incident.duration_seconds) if incident.duration_seconds is not none else "-" }}s elapsed</small>
-</h2>
+  <span class="sub">{{ incident.incident_type }} · {{ "%.1f"|format(incident.duration_seconds) if incident.duration_seconds is not none else "-" }}s elapsed</span>
+</div>
 
 <div class="card">
-  <h3>1. Alert received</h3>
-  <p><strong>Alert name:</strong> {{ incident.alertname }} &nbsp;
-     <strong>Namespace:</strong> {{ incident.namespace }} &nbsp;
-     <strong>Resource:</strong> {{ incident.resource_name }} &nbsp;
-     <strong>Severity:</strong> {{ incident.severity }}</p>
+  <h3><span class="step-num">1</span> Alert received</h3>
+  <div class="kv" style="margin-bottom:16px;">
+    <div><dt>Alert name</dt><dd>{{ incident.alertname }}</dd></div>
+    <div><dt>Namespace</dt><dd class="mono">{{ incident.namespace }}</dd></div>
+    <div><dt>Resource</dt><dd class="mono">{{ incident.resource_name }}</dd></div>
+    <div><dt>Severity</dt><dd>{{ incident.severity }}</dd></div>
+  </div>
   <pre>{{ incident.raw_alert | tojson(indent=2) }}</pre>
 </div>
 
 <div class="card">
-  <h3>2. Context gathered (Prometheus / Loki)</h3>
+  <h3><span class="step-num">2</span> Context gathered (Prometheus / Loki)</h3>
   <pre>{{ incident.context_snapshot | tojson(indent=2) }}</pre>
 </div>
 
 {% if incident.agent_evidence or incident.router_decision or incident.reflections %}
 <div class="card">
-  <h3>2b. Agentic reasoning trace</h3>
+  <h3><span class="step-num">2b</span> Agentic reasoning trace</h3>
   {% if incident.router_decision %}
   <p><strong>Supervisor decision:</strong> <code>{{ incident.router_decision }}</code>
      {% if incident.router_rationale %}&mdash; {{ incident.router_rationale }}{% endif %}</p>
   {% endif %}
   {% if incident.agent_evidence %}
   <p><strong>Investigation tool calls (agent chose these):</strong></p>
-  <ol>
+  <ol class="list-reset">
     {% for step in incident.agent_evidence %}
     <li><code>{{ step.tool }}</code>{% if step.args %} {{ step.args | tojson }}{% endif %}
       {% if step.result %}<pre>{{ step.result }}</pre>{% endif %}</li>
@@ -40,7 +46,7 @@
   {% endif %}
   {% if incident.reflections %}
   <p><strong>Self-critique:</strong></p>
-  <ul>
+  <ul class="list-reset">
     {% for r in incident.reflections %}<li>{{ r }}</li>{% endfor %}
   </ul>
   {% endif %}
@@ -48,25 +54,25 @@
 {% endif %}
 
 <div class="card">
-  <h3>3. Diagnosis (via the diagnosis graph - RCA node)</h3>
+  <h3><span class="step-num">3</span> Diagnosis (diagnosis graph · RCA node)</h3>
   <p>{{ incident.diagnosis_text }}</p>
-  <p><small>
-    severity = <code>{{ incident.computed_severity or "-" }}</code> &nbsp;
-    confidence = <code>{{ "%.2f"|format(incident.confidence_score) if incident.confidence_score is not none else "-" }}</code>
-  </small></p>
+  <div class="kv">
+    <div><dt>Severity</dt><dd><code>{{ incident.computed_severity or "-" }}</code></dd></div>
+    <div><dt>Confidence</dt><dd><code>{{ "%.2f"|format(incident.confidence_score) if incident.confidence_score is not none else "-" }}</code></dd></div>
+  </div>
 </div>
 
 {% if incident.status == "escalated" %}
 <div class="card">
-  <h3>4. Escalated - no plan proposed</h3>
+  <h3><span class="step-num">4</span> Escalated — no plan proposed</h3>
   <p>{{ incident.escalation_reason }}</p>
 </div>
 {% else %}
 <div class="card">
-  <h3>4. Proposed remediation plan (LLM-authored, guardrail-validated)</h3>
+  <h3><span class="step-num">4</span> Proposed remediation plan (LLM-authored, guardrail-validated)</h3>
   {% if incident.remediation_plan %}
   <p><strong>{{ incident.remediation_plan.title }}</strong></p>
-  <ol>
+  <ol class="list-reset">
     {% for step in incident.remediation_plan.steps %}
     <li>{{ step }}</li>
     {% endfor %}
@@ -81,27 +87,33 @@
 {% endif %}
 
 <div class="card">
-  <h3>5. Human decision</h3>
+  <h3><span class="step-num">5</span> Human decision</h3>
   {% if incident.status == "pending" %}
   <form style="display:inline" method="post" action="/incident/{{ incident.id }}/approve">
     <input type="hidden" name="approver" value="human">
-    <button class="approve" type="submit">Approve</button>
+    <button class="approve" type="submit">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+      Approve
+    </button>
   </form>
   <form style="display:inline" method="post" action="/incident/{{ incident.id }}/reject">
     <input type="hidden" name="approver" value="human">
-    <button class="reject" type="submit">Reject</button>
+    <button class="reject" type="submit">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      Reject
+    </button>
   </form>
   {% elif incident.status == "escalated" %}
-  <p>The diagnosis graph escalated this incident instead of proposing a plan - see reason above.
+  <p>The diagnosis graph escalated this incident instead of proposing a plan — see reason above.
      Investigate manually, or re-run diagnosis if this looks like a transient failure.</p>
   <form method="post" action="/incident/{{ incident.id }}/reprocess">
     <button class="approve" type="submit">Re-run diagnosis</button>
   </form>
   {% elif incident.status == "in_progress" %}
-  <p>Approved by {{ incident.decision_by }} at {{ incident.decision_at }} - agent is retrying
+  <p>Approved by {{ incident.decision_by }} at {{ incident.decision_at }} — agent is retrying
      until the condition clears (this page refreshes itself every 3s).</p>
   {% elif incident.status == "execution_failed" %}
-  <p>Approved by {{ incident.decision_by }} at {{ incident.decision_at }} - retry budget exhausted.</p>
+  <p>Approved by {{ incident.decision_by }} at {{ incident.decision_at }} — retry budget exhausted.</p>
   <form method="post" action="/incident/{{ incident.id }}/retry">
     <button class="approve" type="submit">Retry</button>
   </form>
@@ -113,13 +125,13 @@
 
 {% if incident.execution_result %}
 <div class="card">
-  <h3>6. Execution result (Kubernetes API)</h3>
+  <h3><span class="step-num">6</span> Execution result (Kubernetes API)</h3>
   <pre>{{ incident.execution_result | tojson(indent=2) }}</pre>
 </div>
 {% endif %}
 
 <div class="card">
-  <h3>Full step-by-step timeline (exactly what the agent sent / received)</h3>
+  <h3>Full step-by-step timeline</h3>
   {% for event in timeline %}
   <div class="step step-{{ event.direction }}">
     <div><strong>{{ event.step }}</strong> &nbsp;<small>{{ event.direction }} &middot; {{ event.timestamp }}{% if event.elapsed_ms is not none %} &middot; +{{ event.step_ms }}ms (total {{ event.elapsed_ms }}ms){% endif %}</small></div>
@@ -127,7 +139,7 @@
     {% if event.payload %}<pre>{{ event.payload }}</pre>{% endif %}
   </div>
   {% else %}
-  <p>No timeline events recorded yet.</p>
+  <p class="muted">No timeline events recorded yet.</p>
   {% endfor %}
 </div>
 </div>
