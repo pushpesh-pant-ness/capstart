@@ -24,6 +24,8 @@ data:
   # volume - see agent/app/audit.py for the same schema kept in sync in code
   # (CREATE TABLE IF NOT EXISTS, so re-running it there is always a no-op).
   001_schema.sql: |
+    CREATE EXTENSION IF NOT EXISTS vector;
+
     CREATE TABLE IF NOT EXISTS incidents (
         id SERIAL PRIMARY KEY,
         fingerprint TEXT,
@@ -43,9 +45,12 @@ data:
         decision_by TEXT,
         decision_at TEXT,
         execution_result TEXT,
+        embedding vector(1024),
         received_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
     );
+    CREATE INDEX IF NOT EXISTS idx_incidents_embedding
+        ON incidents USING hnsw (embedding vector_cosine_ops);
 
     CREATE TABLE IF NOT EXISTS incident_steps (
         id SERIAL PRIMARY KEY,
@@ -98,7 +103,7 @@ spec:
           effect: NoSchedule
       containers:
         - name: postgres
-          image: postgres:16-alpine
+          image: pgvector/pgvector:pg16
           ports:
             - containerPort: 5432
           envFrom:

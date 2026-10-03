@@ -46,6 +46,17 @@ class Settings(BaseSettings):
     # as grounding examples for the Bedrock diagnosis prompt (0 disables it).
     diagnosis_history_examples: int = 3
 
+    # Hybrid historical retrieval: when on, the historical node embeds the
+    # current incident's symptoms (Bedrock Titan) and uses pgvector semantic
+    # recall, then re-ranks with the existing resource/severity heuristic.
+    # Off by default -> the deterministic keyword path is unchanged. Requires
+    # the pgvector extension (see agent/k8s/postgres.yaml) and bedrock_enabled.
+    hybrid_retrieval_enabled: bool = False
+    embedding_model_id: str = "amazon.titan-embed-text-v2:0"
+    embedding_dim: int = 1024
+    vector_recall_limit: int = 10  # ANN candidate pool size before heuristic re-rank
+    hybrid_vector_weight: float = 0.5  # alpha: final = alpha*vector + (1-alpha)*heuristic
+
     # Log-driven trigger: in addition to Prometheus/Alertmanager metric alerts,
     # watch Loki for error log lines and open incidents from them. Off by
     # default so metric-only deployments are unchanged. See app/log_watcher.py.

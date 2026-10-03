@@ -92,6 +92,23 @@ def init_db() -> None:
         for column, col_type in _ADDED_COLUMNS.items():
             if column not in existing:
                 cur.execute(f"ALTER TABLE incidents ADD COLUMN {column} {col_type}")
+        if "embedding" not in existing:
+            _init_vector(cur)
+
+
+def _init_vector(cur: Any) -> None:
+    """Best-effort pgvector setup (extension + embedding column + ANN index).
+    Skipped silently on a plain Postgres without the extension - hybrid
+    retrieval stays off and the keyword path is unaffected."""
+    try:
+        cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
+        cur.execute(f"ALTER TABLE incidents ADD COLUMN embedding vector({settings.embedding_dim})")
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_incidents_embedding "
+            "ON incidents USING hnsw (embedding vector_cosine_ops)"
+        )
+    except psycopg2.Error:
+        cur.connection.rollback()
 
 
 def create_incident(
@@ -204,6 +221,39 @@ def find_similar_resolved(incident_type: str, exclude_id: int | None = None, lim
                WHERE incident_type = %s AND status IN ('resolved', 'executed') AND id != %s
                ORDER BY id DESC LIMIT %s""",
             (incident_type, exclude_id or -1, limit),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def _vector_literal(embedding: list[float]) -> str:
+    """pgvector text input format: '[0.1,0.2,...]' - cast with ::vector in SQL."""
+    return "[" + ",".join(repr(float(x)) for x in embedding) + "]"
+
+
+def set_incident_embedding(incident_id: int, embedding: list[float]) -> None:
+    with _lock, _connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE incidents SET embedding = %s::vector WHERE id = %s",
+            (_vector_literal(embedding), incident_id),
+        )
+
+
+def find_similar_resolved_hybrid(
+    embedding: list[float], exclude_id: int | None = None, limit: int = 10
+) -> list[dict[str, Any]]:
+    """Semantic recall: resolved/executed incidents whose stored symptom
+    embedding is closest (cosine) to the current one, across incident types.
+    The structured status filter runs in the same query; the caller re-ranks
+    the result with the resource/severity heuristic (see historical.py)."""
+    with _lock, _connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT *, 1 - (embedding <=> %(vec)s::vector) AS vector_similarity
+               FROM incidents
+               WHERE status IN ('resolved', 'executed') AND id != %(exclude)s
+                     AND embedding IS NOT NULL
+               ORDER BY embedding <=> %(vec)s::vector
+               LIMIT %(limit)s""",
+            {"vec": _vector_literal(embedding), "exclude": exclude_id or -1, "limit": limit},
         )
         return [dict(r) for r in cur.fetchall()]
 

@@ -169,3 +169,23 @@ def generate_diagnosis(
         return Diagnosis(text=_fallback_text(incident_type, alert), confidence=0.5)
     text, confidence = _split_confidence(raw_text)
     return Diagnosis(text=text, confidence=confidence)
+
+
+@traceable(name="embed_text", run_type="embedding")
+def embed_text(incident_id: int, text: str) -> list[float] | None:
+    """Embed incident symptom text with Amazon Titan for pgvector similarity
+    search. Returns None on any failure so hybrid retrieval degrades to the
+    deterministic keyword path instead of breaking the pipeline."""
+    if not settings.bedrock_enabled:
+        return None
+    try:
+        response = _get_client().invoke_model(
+            modelId=settings.embedding_model_id,
+            body=json.dumps({"inputText": text}),
+        )
+        vector = json.loads(response["body"].read())["embedding"]
+    except Exception as exc:  # noqa: BLE001 - never let an embedding outage break retrieval
+        log_step(incident_id, "bedrock.embed", "RECV", {"error": str(exc)}, note="Embedding call failed")
+        return None
+    return vector
+
