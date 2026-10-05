@@ -116,3 +116,7 @@ diagnosis, and approve or reject it. Full walkthrough in [instructions.md](instr
   [plan.md](plan.md#stretch-add-after-mvp-is-solid) (OOMKilled, Pending pods, disk
   pressure, config errors, control-plane latency) is unimplemented.
 - Single-cluster, single-tenant only — no multi-cluster fan-in or RBAC-per-team model.
+
+## PPT link
+
+''https://docs.google.com/presentation/d/1ywSaCkdNx9vejd7KKVaJIw5vIg5NWlYi/edit?usp=sharing&ouid=116367973244415603066&rtpof=true&sd=true''
