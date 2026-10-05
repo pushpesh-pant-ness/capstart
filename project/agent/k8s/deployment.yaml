@@ -83,10 +83,18 @@ spec:
           resources:
             requests:
               cpu: 50m
-              memory: 96Mi
+              memory: 192Mi
             limits:
-              cpu: 250m
-              memory: 256Mi
+              cpu: 500m
+              # Concurrent incidents (cascading alerts) each run a LangGraph
+              # pipeline with multiple Bedrock calls + a ReAct tool loop in the
+              # same process - 256Mi was observed OOMKilling the pod mid-graph
+              # (exit 137), silently losing an already-computed diagnosis/plan
+              # before it could be persisted (incident stuck with no RCA/plan,
+              # then a stale approval failed with "no executor registered for
+              # action 'None'"). See app/ui/routes.py approve()/retry() for the
+              # companion fix that recovers from that state if it recurs.
+              memory: 512Mi
           readinessProbe:
             httpGet:
               path: /healthz

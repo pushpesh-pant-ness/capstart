@@ -93,6 +93,21 @@ def incident_detail(request: Request, incident_id: int) -> HTMLResponse:
     )
 
 
+def _reprocess_stuck_incident(incident_id: int, incident: dict[str, Any], background_tasks: BackgroundTasks) -> None:
+    """No usable action on the plan (e.g. the diagnosis graph never finished -
+    killed mid-run, or an earlier bug left the row empty): re-run diagnosis
+    from scratch instead of handing the executor a None action, which would
+    just dead-end in execution_failed forever (see executor._HANDLERS lookup)."""
+    log_step(
+        incident_id, "ui.decision", "ACTION", {"decision": "reprocess_incomplete_plan"},
+        note="Remediation plan has no action (diagnosis likely never completed) - re-running diagnosis instead",
+    )
+    raw_alert = _parse_json_field(incident.get("raw_alert")) or {}
+    background_tasks.add_task(
+        _reprocess, incident_id, raw_alert, incident["namespace"], incident["resource_name"], incident["incident_type"]
+    )
+
+
 @router.post("/incident/{incident_id}/approve")
 def approve(
     incident_id: int, background_tasks: BackgroundTasks, approver: str = Form(default="human")
@@ -101,6 +116,11 @@ def approve(
     if not incident:
         return HTMLResponse("Incident not found", status_code=404)  # type: ignore[return-value]
 
+    plan = _parse_json_field(incident.get("remediation_plan")) or {}
+    if not plan.get("action"):
+        _reprocess_stuck_incident(incident_id, incident, background_tasks)
+        return RedirectResponse(f"/incident/{incident_id}", status_code=303)
+
     log_step(
         incident_id, "ui.decision", "ACTION", {"decision": "approve", "by": approver},
         note="Human approved the remediation plan in the Approval UI",
@@ -108,7 +128,6 @@ def approve(
     now = datetime.now(timezone.utc).isoformat()
     audit.update_incident(incident_id, status="in_progress", decision_by=approver, decision_at=now)
 
-    plan = _parse_json_field(incident.get("remediation_plan")) or {}
     background_tasks.add_task(_run_remediation, incident_id, plan, incident["namespace"], incident["resource_name"])
 
     return RedirectResponse(f"/incident/{incident_id}", status_code=303)
@@ -121,10 +140,14 @@ def retry(incident_id: int, background_tasks: BackgroundTasks) -> RedirectRespon
     if not incident:
         return HTMLResponse("Incident not found", status_code=404)  # type: ignore[return-value]
 
+    plan = _parse_json_field(incident.get("remediation_plan")) or {}
+    if not plan.get("action"):
+        _reprocess_stuck_incident(incident_id, incident, background_tasks)
+        return RedirectResponse(f"/incident/{incident_id}", status_code=303)
+
     log_step(incident_id, "ui.decision", "ACTION", {"decision": "retry"}, note="Human asked the agent to try again")
     audit.update_incident(incident_id, status="in_progress")
 
-    plan = _parse_json_field(incident.get("remediation_plan")) or {}
     background_tasks.add_task(_run_remediation, incident_id, plan, incident["namespace"], incident["resource_name"])
 
     return RedirectResponse(f"/incident/{incident_id}", status_code=303)
