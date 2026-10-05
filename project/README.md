@@ -119,4 +119,4 @@ diagnosis, and approve or reject it. Full walkthrough in [instructions.md](instr
 
 ## PPT link
 
-''https://docs.google.com/presentation/d/1ywSaCkdNx9vejd7KKVaJIw5vIg5NWlYi/edit?usp=sharing&ouid=116367973244415603066&rtpof=true&sd=true''
+''https://docs.google.com/presentation/d/1sc4Nyq8c7ZyDPZG4pWbY7LyAUdQh0BNR-juLfTReSJI/edit?usp=sharing''
