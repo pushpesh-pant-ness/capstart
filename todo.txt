@@ -2,3 +2,19 @@
 2. impment langsmith and observalvality tool
 3. check for Historical retrieval and RAG if we are doing it
 4. explain every situation with examples
+
+
+
+kubectl port-forward -n monitoring svc/kube-state-metrics 8080:8080
+
+http://localhost:8080/metrics
+
+
+kubectl port-forward -n monitoring svc/blackbox-exporter 9115:9115
+
+http://localhost:9100/metrics
+
+
+kubectl port-forward -n monitoring svc/blackbox-exporter 9115:9115
+
+http://localhost:9115/probe?target=http://demo-web.demo.svc.cluster.local&module=http_2xx
